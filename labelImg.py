@@ -780,7 +780,7 @@ class MainWindow(QMainWindow, WindowMixin):
             'copyPrevBounding'), self.copy_previous_bounding_boxes, 'Ctrl+v', 'copy', get_str('copyPrevBounding'))
 
         export_yolo = action(get_str('exportYOLO'), self.export_yolo_dataset,
-                             'Ctrl+E', 'export', get_str('exportYOLODetail'))
+                             'Ctrl+Shift+E', 'export', get_str('exportYOLODetail'))
 
         open_next_image = action(get_str('nextImg'), self.open_next_image,
                                  'd', 'next', get_str('nextImgDetail'))
@@ -1386,6 +1386,7 @@ class MainWindow(QMainWindow, WindowMixin):
         <li><b>Ctrl+Shift+O</b> - 打开文件夹</li>
         <li><b>Ctrl+S</b> - 保存标注</li>
         <li><b>Ctrl+D</b> - 复制当前标注框</li>
+        <li><b>Ctrl+Shift+E</b> - 导出YOLO数据集</li>
         </ul>
 
         <h4>🎯 标注操作</h4>
