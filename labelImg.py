@@ -3892,7 +3892,21 @@ class MainWindow(QMainWindow, WindowMixin):
             print(f"[DEBUG] 快捷键触发: {action_name}")
 
             # 根据动作名称执行相应的操作
-            if action_name == "ai_predict_current":
+            if action_name == "delete":
+                # 处理删除标注框
+                print(f"[DEBUG] 执行删除标注框操作")
+                if self.canvas.selected_shape:
+                    self.delete_selected_shape()
+                else:
+                    print(f"[DEBUG] 没有选中的标注框可删除")
+            elif action_name == "copy":
+                # 处理复制标注框
+                print(f"[DEBUG] 执行复制标注框操作")
+                if self.canvas.selected_shape:
+                    self.copy_selected_shape()
+                else:
+                    print(f"[DEBUG] 没有选中的标注框可复制")
+            elif action_name == "ai_predict_current":
                 if hasattr(self, 'ai_assistant_panel'):
                     self.ai_assistant_panel.on_predict_current()
             elif action_name == "ai_predict_batch":
@@ -3927,7 +3941,8 @@ class MainWindow(QMainWindow, WindowMixin):
                 if self.m_img_list and len(self.m_img_list) > 0:
                     self.cur_img_idx = len(self.m_img_list) - 1
                     self.load_file(self.m_img_list[-1])
-            # 可以继续添加更多快捷键处理
+            else:
+                print(f"[DEBUG] 未处理的快捷键动作: {action_name}")
 
         except Exception as e:
             print(f"[ERROR] 快捷键触发处理失败: {str(e)}")

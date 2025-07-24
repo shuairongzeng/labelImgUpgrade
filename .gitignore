@@ -43,3 +43,7 @@ __pycache__/
 .unison*
 .attach*
 tmp.*
+datasets/*
+models/custom/*
+runs/*
+test_images/*

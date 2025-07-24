@@ -67,20 +67,20 @@ class ShortcutManager(QObject):
 
     def init_default_shortcuts(self):
         """初始化默认快捷键"""
-        # 文件操作
-        self.register_action("open_file", "打开文件", "Ctrl+O", "文件操作")
-        self.register_action("save_file", "保存文件", "Ctrl+S", "文件操作")
-        self.register_action("save_as", "另存为", "Ctrl+Shift+S", "文件操作")
-        self.register_action("close_file", "关闭文件", "Ctrl+W", "文件操作")
-        self.register_action("quit", "退出程序", "Ctrl+Q", "文件操作")
+        # 文件操作 - 注意：一些基础文件操作由原有Qt Action系统处理，避免冲突
+        # self.register_action("open_file", "打开文件", "Ctrl+O", "文件操作")  # 由原有系统处理
+        # self.register_action("save_file", "保存文件", "Ctrl+S", "文件操作")  # 由原有系统处理
+        # self.register_action("save_as", "另存为", "Ctrl+Shift+S", "文件操作")  # 由原有系统处理
+        # self.register_action("close_file", "关闭文件", "Ctrl+W", "文件操作")  # 由原有系统处理
+        # self.register_action("quit", "退出程序", "Ctrl+Q", "文件操作")  # 由原有系统处理
 
-        # 编辑操作
-        self.register_action("undo", "撤销", "Ctrl+Z", "编辑操作")
-        self.register_action("redo", "重做", "Ctrl+Y", "编辑操作")
-        self.register_action("copy", "复制", "Ctrl+C", "编辑操作")
-        self.register_action("paste", "粘贴", "Ctrl+V", "编辑操作")
-        self.register_action("delete", "删除", "Delete", "编辑操作")
-        self.register_action("select_all", "全选", "Ctrl+A", "编辑操作")
+        # 编辑操作 - 注意：一些基础编辑操作由原有Qt Action系统处理，避免冲突
+        # self.register_action("undo", "撤销", "Ctrl+Z", "编辑操作")  # 由原有系统处理
+        # self.register_action("redo", "重做", "Ctrl+Y", "编辑操作")  # 由原有系统处理
+        # self.register_action("copy", "复制", "Ctrl+C", "编辑操作")  # 由原有系统处理
+        # self.register_action("paste", "粘贴", "Ctrl+V", "编辑操作")  # 由原有系统处理
+        # self.register_action("delete", "删除", "Delete", "编辑操作")  # 由原有系统处理，避免冲突
+        # self.register_action("select_all", "全选", "Ctrl+A", "编辑操作")  # 由原有系统处理
 
         # 视图操作
         self.register_action("zoom_in", "放大", "Ctrl+Plus", "视图操作")
@@ -92,7 +92,7 @@ class ShortcutManager(QObject):
         self.register_action("toggle_draw_square",
                              "切换矩形绘制", "Ctrl+Shift+R", "视图操作")
         self.register_action("single_class_mode", "单类模式",
-                             "Ctrl+Shift+S", "视图操作")
+                             "Ctrl+Shift+M", "视图操作")  # 修改为M避免与另存为冲突
         self.register_action("display_label_option",
                              "显示标签选项", "Ctrl+Shift+L", "视图操作")
 
