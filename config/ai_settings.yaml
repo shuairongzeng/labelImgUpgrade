@@ -1,0 +1,198 @@
+# labelImg AI助手配置文件
+# AI Assistant Configuration for labelImg
+
+# AI助手基本设置
+ai_assistant:
+  # 模型设置
+  model:
+    # 默认模型文件名
+    default_model: "yolov8n.pt"
+    # 模型存储目录
+    models_directory: "models"
+    # 支持的模型格式
+    supported_formats: [".pt", ".onnx", ".engine"]
+    # 自动下载预训练模型
+    auto_download: true
+    
+  # 预测参数设置
+  prediction:
+    # 默认置信度阈值
+    default_confidence: 0.25
+    # 最小置信度阈值
+    min_confidence: 0.1
+    # 最大置信度阈值
+    max_confidence: 1.0
+    # 置信度调节步长
+    confidence_step: 0.05
+    # NMS (非极大值抑制) 阈值
+    nms_threshold: 0.45
+    # 最大检测数量
+    max_detections: 100
+    # 图像尺寸 (用于推理)
+    image_size: 640
+    
+  # 批量处理设置
+  batch_processing:
+    # 最大并发数
+    max_concurrent: 4
+    # 批处理块大小
+    chunk_size: 10
+    # 自动保存预测结果
+    auto_save: true
+    # 保存格式 (xml, txt, json)
+    save_format: "xml"
+    # 处理超时时间 (秒)
+    timeout: 300
+    
+  # 界面设置
+  ui:
+    # 显示置信度分数
+    show_confidence: true
+    # 自动应用预测结果
+    auto_apply_predictions: false
+    # 高亮低置信度检测
+    highlight_low_confidence: true
+    # 低置信度阈值
+    low_confidence_threshold: 0.3
+    # 预测框颜色 (RGB)
+    prediction_box_color: [255, 165, 0]  # 橙色
+    # 高置信度框颜色 (RGB)
+    high_confidence_color: [0, 255, 0]   # 绿色
+    # 低置信度框颜色 (RGB)
+    low_confidence_color: [255, 255, 0]  # 黄色
+    # 面板位置 (right, left, bottom, floating)
+    panel_position: "right"
+    # 面板宽度
+    panel_width: 300
+    
+  # 性能设置
+  performance:
+    # 使用GPU (如果可用)
+    use_gpu: true
+    # 模型缓存
+    cache_model: true
+    # 预测结果缓存大小
+    result_cache_size: 100
+    # 内存限制 (MB)
+    memory_limit: 2048
+    
+  # 质量控制设置
+  quality:
+    # 启用质量检查
+    enable_quality_check: true
+    # 最小框尺寸 (像素)
+    min_box_size: 10
+    # 最大框尺寸比例 (相对于图像)
+    max_box_ratio: 0.9
+    # 重叠检查阈值
+    overlap_threshold: 0.8
+    # 边界检查 (确保框在图像内)
+    boundary_check: true
+    
+  # 类别映射设置
+  class_mapping:
+    # 启用类别映射
+    enable_mapping: false
+    # 自定义类别映射
+    custom_mapping: {}
+    # 忽略的类别
+    ignored_classes: []
+    # 类别名称转换 (中文转拼音)
+    convert_chinese: true
+    
+  # 日志设置
+  logging:
+    # 启用日志
+    enable_logging: true
+    # 日志级别 (DEBUG, INFO, WARNING, ERROR)
+    log_level: "INFO"
+    # 日志文件路径
+    log_file: "logs/ai_assistant.log"
+    # 最大日志文件大小 (MB)
+    max_log_size: 10
+    # 保留日志文件数量
+    backup_count: 5
+
+# 预设配置方案
+presets:
+  # 高精度模式
+  high_accuracy:
+    prediction:
+      default_confidence: 0.5
+      nms_threshold: 0.3
+      max_detections: 50
+    quality:
+      min_box_size: 20
+      overlap_threshold: 0.7
+      
+  # 高速度模式  
+  high_speed:
+    prediction:
+      default_confidence: 0.3
+      image_size: 416
+    batch_processing:
+      max_concurrent: 8
+      chunk_size: 20
+      
+  # 平衡模式
+  balanced:
+    prediction:
+      default_confidence: 0.35
+      nms_threshold: 0.45
+      image_size: 640
+    batch_processing:
+      max_concurrent: 4
+      chunk_size: 10
+
+# 模型特定配置
+model_configs:
+  # YOLOv8n 配置
+  "yolov8n.pt":
+    prediction:
+      default_confidence: 0.25
+      image_size: 640
+    performance:
+      memory_limit: 1024
+      
+  # YOLOv8s 配置  
+  "yolov8s.pt":
+    prediction:
+      default_confidence: 0.3
+      image_size: 640
+    performance:
+      memory_limit: 1536
+      
+  # YOLOv8m 配置
+  "yolov8m.pt":
+    prediction:
+      default_confidence: 0.35
+      image_size: 640
+    performance:
+      memory_limit: 2048
+
+# 快捷键设置
+shortcuts:
+  # 预测当前图像
+  predict_current: "Ctrl+P"
+  # 批量预测
+  predict_batch: "Ctrl+Shift+P"
+  # 切换AI助手面板
+  toggle_panel: "F9"
+  # 调整置信度
+  increase_confidence: "Ctrl+Plus"
+  decrease_confidence: "Ctrl+Minus"
+  # 应用预测结果
+  apply_predictions: "Ctrl+Enter"
+  # 清除预测结果
+  clear_predictions: "Ctrl+Delete"
+
+# 实验性功能
+experimental:
+  # 启用实验性功能
+  enable_experimental: false
+  # 智能标注建议
+  smart_annotation: false
+  # 自动类别识别
+  auto_class_detection: false
+  # 增量学习
+  incremental_learning: false

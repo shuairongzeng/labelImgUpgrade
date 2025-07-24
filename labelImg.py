@@ -50,6 +50,12 @@ from libs.default_label_combobox import DefaultLabelComboBox
 from libs.resources import *
 from libs.constants import *
 
+# AI助手相关导入
+from libs.ai_assistant_panel import AIAssistantPanel, CollapsibleAIPanel
+from libs.ai_assistant import YOLOPredictor, ModelManager, BatchProcessor, ConfidenceFilter
+from libs.batch_operations import BatchOperations, BatchOperationsDialog
+from libs.shortcut_manager import ShortcutManager, ShortcutConfigDialog
+
 
 def get_resource_path(relative_path):
     """获取资源文件的绝对路径，兼容PyInstaller打包"""
@@ -555,6 +561,31 @@ class MainWindow(QMainWindow, WindowMixin):
         self.clear_labels_button.clicked.connect(
             self.clear_predefined_classes_with_confirmation)
 
+        # Create switch to unannotated image button
+        self.switch_unannotated_button = QPushButton('🎯 切换到未标注图片')
+        self.switch_unannotated_button.setToolTip('快速跳转到下一张未标注的图片')
+        self.switch_unannotated_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2196f3;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 16px;
+                font-weight: 500;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #1976d2;
+            }
+            QPushButton:pressed {
+                background-color: #0d47a1;
+            }
+        """)
+        self.switch_unannotated_button.clicked.connect(
+            self.switch_to_next_unannotated_image)
+        # 初始状态下禁用按钮，直到加载图片列表
+        self.switch_unannotated_button.setEnabled(False)
+
         # Create a widget for edit and diffc button
         self.diffc_button = QCheckBox(get_str('useDifficult'))
         self.diffc_button.setChecked(False)
@@ -576,6 +607,7 @@ class MainWindow(QMainWindow, WindowMixin):
         list_layout.addWidget(diffc_container)
         list_layout.addWidget(use_default_label_container)
         list_layout.addWidget(self.clear_labels_button)
+        list_layout.addWidget(self.switch_unannotated_button)
 
         # 添加标签搜索框
         label_search_layout = QHBoxLayout()
@@ -726,7 +758,7 @@ class MainWindow(QMainWindow, WindowMixin):
         # 设置停靠窗口的标签化显示
         self.setTabPosition(Qt.RightDockWidgetArea, QTabWidget.North)
         self.tabifyDockWidget(self.dock, self.file_dock)
-        self.dock.raise_()  # 默认显示标签面板
+        # 注意：AI助手面板将在后续初始化时设置为默认显示
 
         # Actions
         action = partial(new_action, self)
@@ -891,7 +923,7 @@ class MainWindow(QMainWindow, WindowMixin):
 
         labels = self.dock.toggleViewAction()
         labels.setText(get_str('showHide'))
-        labels.setShortcut('Ctrl+Shift+L')
+        labels.setShortcut('Ctrl+Shift+T')
 
         # Label list context menu.
         label_menu = QMenu()
@@ -908,6 +940,28 @@ class MainWindow(QMainWindow, WindowMixin):
             settings.get(SETTING_DRAW_SQUARE, False))
         self.draw_squares_option.triggered.connect(self.toggle_draw_square)
 
+        # ==================== 新功能动作 ====================
+
+        # AI助手相关动作
+        ai_predict_current = action('🤖 AI预测当前图像', self.on_ai_predict_current,
+                                    'Ctrl+P', 'ai_predict', 'AI预测当前图像')
+        ai_predict_batch = action('🔄 AI批量预测', self.on_ai_batch_predict,
+                                  'Ctrl+Shift+P', 'ai_batch', 'AI批量预测')
+        ai_toggle_panel = action('🔧 切换AI面板', self.on_ai_toggle_panel,
+                                 'F9', 'ai_panel', '显示/隐藏AI助手面板')
+
+        # 批量操作相关动作
+        batch_operations = action('📦 批量操作', self.show_batch_operations_dialog,
+                                  'Ctrl+B', 'batch_ops', '批量操作对话框')
+        batch_copy = action('📋 批量复制', self.on_batch_copy,
+                            'Ctrl+Shift+C', 'batch_copy', '批量复制标注')
+        batch_delete = action('🗑️ 批量删除', self.on_batch_delete,
+                              'Ctrl+Shift+D', 'batch_delete', '批量删除标注')
+
+        # 快捷键配置动作
+        shortcut_config = action('⌨️ 快捷键配置', self.show_shortcut_config_dialog,
+                                 'Ctrl+K', 'shortcut_config', '配置快捷键')
+
         # Store actions for further handling.
         self.actions = Struct(save=save, save_format=save_format, saveAs=save_as, open=open, close=close, resetAll=reset_all, deleteImg=delete_image,
                               lineColor=color1, create=create, delete=delete, edit=edit, copy=copy,
@@ -918,6 +972,10 @@ class MainWindow(QMainWindow, WindowMixin):
                               zoomActions=zoom_actions,
                               lightBrighten=light_brighten, lightDarken=light_darken, lightOrg=light_org,
                               lightActions=light_actions,
+                              # 新功能动作
+                              aiPredictCurrent=ai_predict_current, aiPredictBatch=ai_predict_batch, aiTogglePanel=ai_toggle_panel,
+                              batchOperations=batch_operations, batchCopy=batch_copy, batchDelete=batch_delete,
+                              shortcutConfig=shortcut_config,
                               fileMenuActions=(
                                   open, open_dir, save, save_as, close, reset_all, quit),
                               beginner=(), advanced=(),
@@ -934,6 +992,7 @@ class MainWindow(QMainWindow, WindowMixin):
             file=self.menu(get_str('menu_file')),
             edit=self.menu(get_str('menu_edit')),
             view=self.menu(get_str('menu_view')),
+            tools=self.menu('工具'),
             help=self.menu(get_str('menu_help')),
             recentFiles=QMenu(get_str('menu_openRecent')),
             labelList=label_menu)
@@ -951,7 +1010,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.lastLabel = None
         # Add option to enable/disable labels being displayed at the top of bounding boxes
         self.display_label_option = QAction(get_str('displayLabel'), self)
-        self.display_label_option.setShortcut("Ctrl+Shift+P")
+        self.display_label_option.setShortcut("Ctrl+Shift+L")
         self.display_label_option.setCheckable(True)
         self.display_label_option.setChecked(
             settings.get(SETTING_PAINT_LABEL, False))
@@ -971,6 +1030,12 @@ class MainWindow(QMainWindow, WindowMixin):
             fit_window, fit_width, None,
             light_brighten, light_darken, light_org))
 
+        # 添加工具菜单项
+        add_actions(self.menus.tools, (
+            ai_predict_current, ai_predict_batch, ai_toggle_panel, None,
+            batch_operations, batch_copy, batch_delete, None,
+            shortcut_config))
+
         self.menus.file.aboutToShow.connect(self.update_file_menu)
 
         # Custom context menu for the canvas widget:
@@ -983,7 +1048,8 @@ class MainWindow(QMainWindow, WindowMixin):
         self.create_modern_toolbars(open, open_dir, change_save_dir, open_next_image, open_prev_image,
                                     verify, save, save_format, create, copy, delete, create_mode, edit_mode,
                                     zoom_in, zoom, zoom_out, fit_window, fit_width,
-                                    light_brighten, light, light_darken, light_org, hide_all, show_all)
+                                    light_brighten, light, light_darken, light_org, hide_all, show_all,
+                                    ai_predict_current, ai_predict_batch, batch_operations)
 
         self.actions.beginner = (
             open, open_dir, change_save_dir, open_next_image, open_prev_image, verify, save, save_format, None, create, copy, delete, None,
@@ -1096,6 +1162,18 @@ class MainWindow(QMainWindow, WindowMixin):
 
         # 创建快捷操作面板
         self.setup_quick_actions_panel()
+
+        # 初始化AI助手系统
+        self.setup_ai_assistant()
+
+        # 设置主窗口布局（包含AI助手面板）
+        self.setup_main_layout_with_ai_panel()
+
+        # 初始化批量操作系统
+        self.setup_batch_operations()
+
+        # 初始化快捷键管理系统
+        self.setup_shortcut_manager()
 
         # Open Dir if default file
         if self.file_path and os.path.isdir(self.file_path):
@@ -1278,6 +1356,25 @@ class MainWindow(QMainWindow, WindowMixin):
         # 重新设置中央部件
         self.setCentralWidget(central_container)
 
+    def setup_main_layout_with_ai_panel(self):
+        """设置包含AI助手面板的主窗口布局"""
+        # 创建新的中央容器
+        main_container = QWidget()
+        main_container_layout = QHBoxLayout(main_container)
+        main_container_layout.setContentsMargins(0, 0, 0, 0)
+        main_container_layout.setSpacing(0)
+
+        # 获取当前的中央部件（包含主工作区域和快捷面板）
+        current_central = self.centralWidget()
+
+        # 添加到新布局
+        main_container_layout.addWidget(current_central, 1)  # 主区域占据剩余空间
+        main_container_layout.addWidget(
+            self.collapsible_ai_panel, 0)  # AI面板固定宽度
+
+        # 设置新的中央部件
+        self.setCentralWidget(main_container)
+
     def show_help_dialog(self):
         """显示帮助对话框"""
         help_text = """
@@ -1320,6 +1417,73 @@ class MainWindow(QMainWindow, WindowMixin):
             }
         """)
         msg_box.exec_()
+
+    def setup_ai_assistant(self):
+        """初始化AI助手系统"""
+        try:
+            # 创建可折叠AI助手面板
+            self.collapsible_ai_panel = CollapsibleAIPanel(self)
+
+            # 获取内部的AI助手面板实例
+            self.ai_assistant_panel = self.collapsible_ai_panel.get_ai_panel()
+
+            # 连接AI助手信号
+            self.collapsible_ai_panel.prediction_requested.connect(
+                self.on_ai_prediction_requested)
+            self.collapsible_ai_panel.batch_prediction_requested.connect(
+                self.on_ai_batch_prediction_requested)
+            self.collapsible_ai_panel.predictions_applied.connect(
+                self.on_ai_predictions_applied)
+            self.collapsible_ai_panel.predictions_cleared.connect(
+                self.on_ai_predictions_cleared)
+            self.collapsible_ai_panel.model_changed.connect(
+                self.on_ai_model_changed)
+
+            print("[DEBUG] AI助手系统初始化完成")
+
+        except Exception as e:
+            print(f"[ERROR] AI助手初始化失败: {str(e)}")
+
+    def setup_batch_operations(self):
+        """初始化批量操作系统"""
+        try:
+            # 创建批量操作管理器
+            self.batch_operations = BatchOperations(self)
+
+            # 连接批量操作信号
+            self.batch_operations.operation_started.connect(
+                self.on_batch_operation_started)
+            self.batch_operations.operation_progress.connect(
+                self.on_batch_operation_progress)
+            self.batch_operations.operation_completed.connect(
+                self.on_batch_operation_completed)
+            self.batch_operations.operation_error.connect(
+                self.on_batch_operation_error)
+
+            print("[DEBUG] 批量操作系统初始化完成")
+
+        except Exception as e:
+            print(f"[ERROR] 批量操作初始化失败: {str(e)}")
+
+    def setup_shortcut_manager(self):
+        """初始化快捷键管理系统"""
+        try:
+            # 创建快捷键管理器
+            self.shortcut_manager = ShortcutManager(self)
+
+            # 应用快捷键到主窗口
+            self.shortcut_manager.apply_shortcuts(self)
+
+            # 连接快捷键信号
+            self.shortcut_manager.shortcut_triggered.connect(
+                self.on_shortcut_triggered)
+            self.shortcut_manager.shortcuts_changed.connect(
+                self.on_shortcuts_changed)
+
+            print("[DEBUG] 快捷键管理系统初始化完成")
+
+        except Exception as e:
+            print(f"[ERROR] 快捷键管理初始化失败: {str(e)}")
 
     def setup_enhanced_status_bar(self):
         """设置增强的状态栏"""
@@ -1545,7 +1709,8 @@ class MainWindow(QMainWindow, WindowMixin):
     def create_modern_toolbars(self, open_action, open_dir, change_save_dir, open_next_image, open_prev_image,
                                verify, save, save_format, create, copy, delete, create_mode, edit_mode,
                                zoom_in, zoom, zoom_out, fit_window, fit_width,
-                               light_brighten, light, light_darken, light_org, hide_all, show_all):
+                               light_brighten, light, light_darken, light_org, hide_all, show_all,
+                               ai_predict_current, ai_predict_batch, batch_operations):
         """创建现代化的分组工具栏"""
 
         # 主工具栏
@@ -1682,6 +1847,70 @@ class MainWindow(QMainWindow, WindowMixin):
             view_layout.addWidget(btn)
 
         main_toolbar.addWidget(view_group)
+        main_toolbar.addSeparator()
+
+        # AI助手工具组
+        ai_group = QWidget()
+        ai_layout = QHBoxLayout(ai_group)
+        ai_layout.setContentsMargins(8, 4, 8, 4)
+        ai_layout.setSpacing(4)
+
+        ai_label = QLabel('🤖 AI助手')
+        ai_label.setStyleSheet(
+            'font-weight: 600; color: #1976d2; margin-right: 8px;')
+        ai_layout.addWidget(ai_label)
+
+        # 添加AI助手按钮
+        ai_actions = [ai_predict_current, ai_predict_batch]
+        for action in ai_actions:
+            btn = QToolButton()
+            btn.setDefaultAction(action)
+            btn.setToolButtonStyle(Qt.ToolButtonIconOnly)
+            btn.setStyleSheet("""
+                QToolButton {
+                    border: none;
+                    border-radius: 4px;
+                    padding: 6px;
+                    margin: 2px;
+                }
+                QToolButton:hover {
+                    background-color: #e8f5e8;
+                }
+            """)
+            ai_layout.addWidget(btn)
+
+        main_toolbar.addWidget(ai_group)
+        main_toolbar.addSeparator()
+
+        # 批量操作工具组
+        batch_group = QWidget()
+        batch_layout = QHBoxLayout(batch_group)
+        batch_layout.setContentsMargins(8, 4, 8, 4)
+        batch_layout.setSpacing(4)
+
+        batch_label = QLabel('📦 批量操作')
+        batch_label.setStyleSheet(
+            'font-weight: 600; color: #1976d2; margin-right: 8px;')
+        batch_layout.addWidget(batch_label)
+
+        # 添加批量操作按钮
+        batch_btn = QToolButton()
+        batch_btn.setDefaultAction(batch_operations)
+        batch_btn.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        batch_btn.setStyleSheet("""
+            QToolButton {
+                border: none;
+                border-radius: 4px;
+                padding: 6px;
+                margin: 2px;
+            }
+            QToolButton:hover {
+                background-color: #fff3e0;
+            }
+        """)
+        batch_layout.addWidget(batch_btn)
+
+        main_toolbar.addWidget(batch_group)
 
         # 添加弹性空间
         spacer = QWidget()
@@ -2240,6 +2469,14 @@ class MainWindow(QMainWindow, WindowMixin):
                     if self.default_label is None:
                         self.default_label = self.label_hist[0]
                         print(f"[DEBUG] 设置默认标签为: {self.default_label}")
+
+                # 通知AI助手面板更新类别信息
+                print(f"[DEBUG] 通知AI助手面板更新类别信息...")
+                if hasattr(self, 'ai_assistant_panel') and self.ai_assistant_panel:
+                    self.ai_assistant_panel.refresh_classes_info()
+                    print(f"[DEBUG] AI助手面板类别信息已更新")
+                else:
+                    print(f"[DEBUG] AI助手面板未初始化，跳过类别信息更新")
             else:
                 print(f"[DEBUG] 标签 '{text}' 已存在于历史记录中，跳过添加")
         else:
@@ -2434,6 +2671,147 @@ class MainWindow(QMainWindow, WindowMixin):
         Converts image counter to string representation.
         """
         return '[{} / {}]'.format(self.cur_img_idx + 1, self.img_count)
+
+    def is_image_annotated(self, image_path):
+        """
+        检查指定图片是否已经标注
+        支持XML (Pascal VOC)、TXT (YOLO)、JSON (CreateML) 格式
+
+        Args:
+            image_path (str): 图片文件路径
+
+        Returns:
+            bool: True表示已标注，False表示未标注
+        """
+        if not image_path or not os.path.exists(image_path):
+            return False
+
+        # 获取图片文件名（不含扩展名）
+        basename = os.path.basename(os.path.splitext(image_path)[0])
+
+        # 检查标注文件是否存在
+        if self.default_save_dir is not None:
+            # 如果设置了默认保存目录，在该目录中查找标注文件
+            xml_path = os.path.join(self.default_save_dir, basename + XML_EXT)
+            txt_path = os.path.join(self.default_save_dir, basename + TXT_EXT)
+            json_path = os.path.join(
+                self.default_save_dir, basename + JSON_EXT)
+        else:
+            # 否则在图片同目录下查找标注文件
+            xml_path = os.path.splitext(image_path)[0] + XML_EXT
+            txt_path = os.path.splitext(image_path)[0] + TXT_EXT
+            json_path = os.path.splitext(image_path)[0] + JSON_EXT
+
+        # 按优先级检查标注文件是否存在：XML > TXT > JSON
+        return (os.path.isfile(xml_path) or
+                os.path.isfile(txt_path) or
+                os.path.isfile(json_path))
+
+    def find_next_unannotated_image(self):
+        """
+        查找下一张未标注的图片
+        从当前位置开始搜索，如果到末尾还没找到则从头开始搜索
+
+        Returns:
+            int: 未标注图片的索引，如果没有找到返回-1
+        """
+        if not self.m_img_list:
+            return -1
+
+        total_images = len(self.m_img_list)
+        if total_images == 0:
+            return -1
+
+        # 从当前位置的下一张开始搜索
+        start_idx = (self.cur_img_idx + 1) % total_images
+
+        # 搜索一圈，避免无限循环
+        for i in range(total_images):
+            check_idx = (start_idx + i) % total_images
+            image_path = self.m_img_list[check_idx]
+
+            if not self.is_image_annotated(image_path):
+                return check_idx
+
+        # 如果所有图片都已标注，返回-1
+        return -1
+
+    def switch_to_next_unannotated_image(self):
+        """
+        切换到下一张未标注的图片
+        """
+        # 处理自动保存
+        if self.auto_saving.isChecked():
+            if self.default_save_dir is not None:
+                if self.dirty is True:
+                    self.save_file()
+            else:
+                self.change_save_dir_dialog()
+                return
+
+        # 检查是否需要保存当前更改
+        if not self.may_continue():
+            return
+
+        if not self.m_img_list:
+            self.statusBar().showMessage('📂 没有加载图片列表')
+            return
+
+        # 显示搜索进度
+        self.statusBar().showMessage('🔍 正在搜索未标注图片...')
+
+        # 查找下一张未标注的图片
+        next_idx = self.find_next_unannotated_image()
+
+        if next_idx == -1:
+            # 没有找到未标注的图片
+            total_count = len(self.m_img_list)
+            self.statusBar().showMessage(f'✅ 恭喜！所有 {total_count} 张图片都已标注完成！')
+            return
+
+        # 如果找到了未标注的图片，切换过去
+        if next_idx != self.cur_img_idx:
+            old_idx = self.cur_img_idx
+            self.cur_img_idx = next_idx
+            filename = self.m_img_list[self.cur_img_idx]
+            if filename:
+                self.load_file(filename)
+                # 计算跳过的图片数量
+                if next_idx > old_idx:
+                    skipped = next_idx - old_idx - 1
+                else:
+                    skipped = len(self.m_img_list) - old_idx + next_idx - 1
+
+                if skipped > 0:
+                    self.statusBar().showMessage(
+                        f'🎯 已切换到未标注图片: {os.path.basename(filename)} (跳过了 {skipped} 张已标注图片)')
+                else:
+                    self.statusBar().showMessage(
+                        f'🎯 已切换到未标注图片: {os.path.basename(filename)}')
+        else:
+            # 当前图片就是未标注的
+            self.statusBar().showMessage('📍 当前图片尚未标注')
+
+    def update_switch_button_state(self):
+        """
+        更新切换到未标注图片按钮的状态
+        """
+        if hasattr(self, 'switch_unannotated_button'):
+            # 如果有图片列表则启用按钮，否则禁用
+            has_images = bool(self.m_img_list)
+            self.switch_unannotated_button.setEnabled(has_images)
+
+            if has_images:
+                # 检查是否还有未标注的图片
+                unannotated_count = sum(1 for img_path in self.m_img_list
+                                        if not self.is_image_annotated(img_path))
+                if unannotated_count > 0:
+                    self.switch_unannotated_button.setToolTip(
+                        f'快速跳转到下一张未标注的图片 (还有 {unannotated_count} 张未标注)')
+                else:
+                    self.switch_unannotated_button.setToolTip('所有图片都已标注完成')
+            else:
+                self.switch_unannotated_button.setToolTip('请先加载图片目录')
 
     def show_bounding_box_from_annotation_file(self, file_path):
         # 检查file_path是否为None，避免TypeError
@@ -2672,6 +3050,9 @@ class MainWindow(QMainWindow, WindowMixin):
             item = QListWidgetItem(imgPath)
             self.file_list_widget.addItem(item)
 
+        # 更新切换按钮状态
+        self.update_switch_button_state()
+
     def verify_image(self, _value=False):
         # Proceeding next image without dialog if having any label
         if self.file_path is not None:
@@ -2807,6 +3188,8 @@ class MainWindow(QMainWindow, WindowMixin):
             self.set_clean()
             self.statusBar().showMessage('Saved to  %s' % annotation_file_path)
             self.statusBar().show()
+            # 保存后更新切换按钮状态
+            self.update_switch_button_state()
 
     def close_file(self, _value=False):
         if not self.may_continue():
@@ -3208,6 +3591,378 @@ class MainWindow(QMainWindow, WindowMixin):
     def toggle_draw_square(self):
         self.canvas.set_drawing_shape_to_square(
             self.draw_squares_option.isChecked())
+
+    # ==================== 新功能动作方法 ====================
+
+    def on_ai_predict_current(self):
+        """AI预测当前图像"""
+        try:
+            if hasattr(self, 'ai_assistant_panel'):
+                self.ai_assistant_panel.on_predict_current()
+            else:
+                QMessageBox.warning(self, "警告", "AI助手未初始化")
+        except Exception as e:
+            print(f"[ERROR] AI预测当前图像失败: {str(e)}")
+
+    def on_ai_batch_predict(self):
+        """AI批量预测"""
+        try:
+            if hasattr(self, 'ai_assistant_panel'):
+                self.ai_assistant_panel.on_predict_batch()
+            else:
+                QMessageBox.warning(self, "警告", "AI助手未初始化")
+        except Exception as e:
+            print(f"[ERROR] AI批量预测失败: {str(e)}")
+
+    def on_ai_toggle_panel(self):
+        """切换AI面板显示"""
+        try:
+            if hasattr(self, 'collapsible_ai_panel'):
+                self.collapsible_ai_panel.toggle_collapse()
+            else:
+                QMessageBox.warning(self, "警告", "AI助手面板未初始化")
+        except Exception as e:
+            print(f"[ERROR] 切换AI面板失败: {str(e)}")
+
+    def on_batch_copy(self):
+        """批量复制标注"""
+        try:
+            # 显示批量操作对话框，默认选择复制操作
+            dialog = BatchOperationsDialog(self)
+            dialog.operation_combo.setCurrentText("批量复制标注")
+            dialog.exec_()
+        except Exception as e:
+            print(f"[ERROR] 批量复制失败: {str(e)}")
+
+    def on_batch_delete(self):
+        """批量删除标注"""
+        try:
+            # 显示批量操作对话框，默认选择删除操作
+            dialog = BatchOperationsDialog(self)
+            dialog.operation_combo.setCurrentText("批量删除标注")
+            dialog.exec_()
+        except Exception as e:
+            print(f"[ERROR] 批量删除失败: {str(e)}")
+
+    # ==================== AI助手信号处理方法 ====================
+
+    def on_ai_prediction_requested(self, image_path, confidence):
+        """处理AI预测请求"""
+        try:
+            print(
+                f"[DEBUG] 主窗口: 收到AI预测请求，image_path='{image_path}', confidence={confidence}")
+
+            # 如果image_path为空，使用当前图像
+            if not image_path and self.file_path:
+                image_path = self.file_path
+                print(f"[DEBUG] 主窗口: 使用当前图像路径: {image_path}")
+
+            if not image_path:
+                error_msg = "没有当前图像，请先打开一张图片"
+                print(f"[ERROR] 主窗口: {error_msg}")
+                return
+
+            if not os.path.exists(image_path):
+                error_msg = f"图像文件不存在: {image_path}"
+                print(f"[ERROR] 主窗口: {error_msg}")
+                return
+
+            print(f"[DEBUG] 主窗口: 准备启动AI预测，图像路径: {image_path}")
+
+            # 启动AI预测
+            if hasattr(self.ai_assistant_panel, 'start_prediction'):
+                print(f"[DEBUG] 主窗口: 调用AI助手面板的start_prediction方法")
+                self.ai_assistant_panel.start_prediction(image_path)
+            else:
+                error_msg = "AI助手面板没有start_prediction方法"
+                print(f"[ERROR] 主窗口: {error_msg}")
+
+        except Exception as e:
+            error_msg = f"AI预测请求处理失败: {str(e)}"
+            print(f"[ERROR] 主窗口: {error_msg}")
+            import traceback
+            traceback.print_exc()
+
+    def on_ai_batch_prediction_requested(self, dir_path, confidence):
+        """处理AI批量预测请求"""
+        try:
+            if not dir_path or not os.path.exists(dir_path):
+                print("[ERROR] 无效的目录路径")
+                return
+
+            # 启动批量预测
+            if hasattr(self.ai_assistant_panel, 'start_batch_prediction'):
+                self.ai_assistant_panel.start_batch_prediction(dir_path)
+
+        except Exception as e:
+            print(f"[ERROR] AI批量预测请求处理失败: {str(e)}")
+
+    def on_ai_predictions_applied(self, predictions):
+        """处理AI预测结果应用"""
+        try:
+            print(
+                f"[DEBUG] 应用预测结果: {predictions[0] if predictions else 'None'}")
+
+            if not predictions:
+                print("[INFO] 没有预测结果需要应用")
+                return
+
+            # 判断传入的是PredictionResult对象列表还是Detection对象列表
+            first_item = predictions[0]
+            if hasattr(first_item, 'detections'):
+                # 这是PredictionResult对象，获取其中的detections
+                print("[DEBUG] 接收到PredictionResult对象")
+                detections = first_item.detections
+            else:
+                # 这是Detection对象列表
+                print("[DEBUG] 接收到Detection对象列表")
+                detections = predictions
+
+            print(f"[DEBUG] 开始应用 {len(detections)} 个检测结果到画布")
+
+            # 将每个检测结果转换为Shape对象并添加到画布
+            for i, detection in enumerate(detections):
+                print(f"[DEBUG] 应用预测结果: {detection}")
+
+                # 使用Detection的to_shape方法转换为Shape对象
+                shape = detection.to_shape()
+
+                # 设置标签显示
+                shape.paint_label = self.display_label_option.isChecked()
+
+                # 生成颜色
+                from libs.utils import generate_color_by_text
+                shape.line_color = generate_color_by_text(shape.label)
+                shape.fill_color = generate_color_by_text(shape.label)
+
+                # 标记为AI生成的标注框
+                shape.ai_generated = True
+                shape.ai_confidence = detection.confidence
+
+                # 添加到画布
+                self.canvas.shapes.append(shape)
+
+                # 添加到标签列表
+                self.add_label(shape)
+
+                print(
+                    f"[DEBUG] 成功添加检测结果 {i+1}: {detection.class_name} (置信度: {detection.confidence:.3f})")
+
+            # 更新画布显示
+            self.canvas.repaint()
+
+            # 设置为已修改状态
+            self.set_dirty()
+
+            print(f"[DEBUG] 成功应用所有预测结果到画布，共 {len(detections)} 个对象")
+
+        except Exception as e:
+            error_msg = f"AI预测结果应用失败: {str(e)}"
+            print(f"[ERROR] {error_msg}")
+            import traceback
+            traceback.print_exc()
+
+    def on_ai_predictions_cleared(self):
+        """处理AI预测结果清除"""
+        try:
+            print("[DEBUG] 主窗口: 收到清除AI预测结果信号")
+
+            # 找到所有AI生成的标注框
+            ai_shapes = []
+            for shape in self.canvas.shapes[:]:  # 使用切片复制，避免在迭代时修改列表
+                if hasattr(shape, 'ai_generated') and shape.ai_generated:
+                    ai_shapes.append(shape)
+
+            print(f"[DEBUG] 主窗口: 找到 {len(ai_shapes)} 个AI生成的标注框")
+
+            # 从画布中移除AI生成的标注框
+            for shape in ai_shapes:
+                # 从画布shapes列表中移除
+                if shape in self.canvas.shapes:
+                    self.canvas.shapes.remove(shape)
+
+                # 从标签列表中移除
+                if shape in self.shapes_to_items:
+                    item = self.shapes_to_items[shape]
+                    # 从标签列表控件中移除
+                    row = self.label_list.row(item)
+                    if row >= 0:
+                        self.label_list.takeItem(row)
+
+                    # 从映射字典中移除
+                    del self.shapes_to_items[shape]
+                    if item in self.items_to_shapes:
+                        del self.items_to_shapes[item]
+
+                print(f"[DEBUG] 主窗口: 移除AI标注框 - {shape.label}")
+
+            # 更新画布显示
+            self.canvas.repaint()
+
+            # 更新标签统计
+            self.update_label_stats()
+
+            # 更新组合框
+            self.update_combo_box()
+
+            # 如果没有标注框了，禁用相关操作
+            if not self.canvas.shapes:
+                for action in self.actions.onShapesPresent:
+                    action.setEnabled(False)
+
+            # 设置为已修改状态
+            self.set_dirty()
+
+            print(f"[DEBUG] 主窗口: 成功清除 {len(ai_shapes)} 个AI生成的标注框")
+
+        except Exception as e:
+            error_msg = f"清除AI预测结果失败: {str(e)}"
+            print(f"[ERROR] 主窗口: {error_msg}")
+            import traceback
+            traceback.print_exc()
+
+    def on_ai_model_changed(self, model_path):
+        """处理AI模型切换"""
+        try:
+            print(f"[DEBUG] AI模型已切换到: {model_path}")
+
+        except Exception as e:
+            print(f"[ERROR] AI模型切换处理失败: {str(e)}")
+
+    # ==================== 批量操作信号处理方法 ====================
+
+    def on_batch_operation_started(self, operation_name, total_count):
+        """处理批量操作开始"""
+        try:
+            print(f"[DEBUG] 批量操作开始: {operation_name}, 总数: {total_count}")
+            # 显示进度条
+            if hasattr(self, 'progress_bar'):
+                self.progress_bar.setVisible(True)
+                self.progress_bar.setMaximum(total_count)
+                self.progress_bar.setValue(0)
+
+        except Exception as e:
+            print(f"[ERROR] 批量操作开始处理失败: {str(e)}")
+
+    def on_batch_operation_progress(self, current, total, current_file):
+        """处理批量操作进度"""
+        try:
+            print(f"[DEBUG] 批量操作进度: {current}/{total}, 当前文件: {current_file}")
+            # 更新进度条
+            if hasattr(self, 'progress_bar'):
+                self.progress_bar.setValue(current)
+
+        except Exception as e:
+            print(f"[ERROR] 批量操作进度处理失败: {str(e)}")
+
+    def on_batch_operation_completed(self, operation_name, result_stats):
+        """处理批量操作完成"""
+        try:
+            print(f"[DEBUG] 批量操作完成: {operation_name}, 结果: {result_stats}")
+            # 隐藏进度条
+            if hasattr(self, 'progress_bar'):
+                self.progress_bar.setVisible(False)
+
+            # 显示完成消息
+            QMessageBox.information(self, "操作完成",
+                                    f"{operation_name}已完成\n{result_stats}")
+
+        except Exception as e:
+            print(f"[ERROR] 批量操作完成处理失败: {str(e)}")
+
+    def on_batch_operation_error(self, error_message):
+        """处理批量操作错误"""
+        try:
+            print(f"[ERROR] 批量操作错误: {error_message}")
+            # 隐藏进度条
+            if hasattr(self, 'progress_bar'):
+                self.progress_bar.setVisible(False)
+
+            # 显示错误消息
+            QMessageBox.critical(self, "操作错误", error_message)
+
+        except Exception as e:
+            print(f"[ERROR] 批量操作错误处理失败: {str(e)}")
+
+    # ==================== 快捷键信号处理方法 ====================
+
+    def on_shortcut_triggered(self, action_name):
+        """处理快捷键触发"""
+        try:
+            print(f"[DEBUG] 快捷键触发: {action_name}")
+
+            # 根据动作名称执行相应的操作
+            if action_name == "ai_predict_current":
+                if hasattr(self, 'ai_assistant_panel'):
+                    self.ai_assistant_panel.on_predict_current()
+            elif action_name == "ai_predict_batch":
+                if hasattr(self, 'ai_assistant_panel'):
+                    self.ai_assistant_panel.on_predict_batch()
+            elif action_name == "ai_toggle_panel":
+                if hasattr(self, 'collapsible_ai_panel'):
+                    self.collapsible_ai_panel.toggle_collapse()
+            elif action_name == "batch_operations":
+                self.show_batch_operations_dialog()
+            elif action_name == "toggle_labels":
+                if hasattr(self, 'dock'):
+                    self.dock.setVisible(not self.dock.isVisible())
+            elif action_name == "toggle_draw_square":
+                if hasattr(self, 'draw_squares_option'):
+                    self.draw_squares_option.trigger()
+            elif action_name == "single_class_mode":
+                if hasattr(self, 'single_class_mode'):
+                    self.single_class_mode.trigger()
+            elif action_name == "display_label_option":
+                if hasattr(self, 'display_label_option'):
+                    self.display_label_option.trigger()
+            elif action_name == "next_image":
+                self.open_next_image()
+            elif action_name == "prev_image":
+                self.open_prev_image()
+            elif action_name == "first_image":
+                if self.m_img_list and len(self.m_img_list) > 0:
+                    self.cur_img_idx = 0
+                    self.load_file(self.m_img_list[0])
+            elif action_name == "last_image":
+                if self.m_img_list and len(self.m_img_list) > 0:
+                    self.cur_img_idx = len(self.m_img_list) - 1
+                    self.load_file(self.m_img_list[-1])
+            # 可以继续添加更多快捷键处理
+
+        except Exception as e:
+            print(f"[ERROR] 快捷键触发处理失败: {str(e)}")
+
+    def on_shortcuts_changed(self):
+        """处理快捷键配置改变"""
+        try:
+            print("[DEBUG] 快捷键配置已改变")
+            # 重新应用快捷键
+            if hasattr(self, 'shortcut_manager'):
+                self.shortcut_manager.apply_shortcuts(self)
+
+        except Exception as e:
+            print(f"[ERROR] 快捷键配置改变处理失败: {str(e)}")
+
+    # ==================== 对话框显示方法 ====================
+
+    def show_batch_operations_dialog(self):
+        """显示批量操作对话框"""
+        try:
+            dialog = BatchOperationsDialog(self)
+            dialog.exec_()
+
+        except Exception as e:
+            print(f"[ERROR] 显示批量操作对话框失败: {str(e)}")
+
+    def show_shortcut_config_dialog(self):
+        """显示快捷键配置对话框"""
+        try:
+            if hasattr(self, 'shortcut_manager'):
+                dialog = ShortcutConfigDialog(self.shortcut_manager, self)
+                dialog.exec_()
+
+        except Exception as e:
+            print(f"[ERROR] 显示快捷键配置对话框失败: {str(e)}")
 
 
 def inverted(color):

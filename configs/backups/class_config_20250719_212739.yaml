@@ -1,0 +1,53 @@
+version: '1.0'
+created_at: '2025-01-19T10:30:00'
+updated_at: '2025-07-19T21:24:30.929807'
+description: 与预设类别文件同步的配置 - 确保YOLO训练时类别顺序一致
+classes:
+- naiMa
+- lingZhu
+- guaiWu
+- naiBa
+- xiuLuo
+- xiuLiShang
+class_metadata:
+  naiMa:
+    description: 从预设类别文件同步的类别
+    added_at: '2025-07-19T21:24:30.929830'
+    usage_count: 0
+    original_id: 0
+    source: predefined_classes.txt
+  lingZhu:
+    description: 从预设类别文件同步的类别
+    added_at: '2025-07-19T21:24:30.929833'
+    usage_count: 0
+    original_id: 1
+    source: predefined_classes.txt
+  guaiWu:
+    description: 从预设类别文件同步的类别
+    added_at: '2025-07-19T21:24:30.929835'
+    usage_count: 0
+    original_id: 2
+    source: predefined_classes.txt
+  naiBa:
+    description: 从预设类别文件同步的类别
+    added_at: '2025-07-19T21:24:30.929837'
+    usage_count: 0
+    original_id: 3
+    source: predefined_classes.txt
+  xiuLuo:
+    description: 从预设类别文件同步的类别
+    added_at: '2025-07-19T21:24:30.929838'
+    usage_count: 0
+    original_id: 4
+    source: predefined_classes.txt
+  xiuLiShang:
+    description: 从预设类别文件同步的类别
+    added_at: '2025-07-19T21:24:30.929840'
+    usage_count: 0
+    original_id: 5
+    source: predefined_classes.txt
+settings:
+  auto_sort: false
+  case_sensitive: true
+  allow_duplicates: false
+  validation_strict: true

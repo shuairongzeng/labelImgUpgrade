@@ -1,0 +1,39 @@
+{
+  "timestamp": "2025-07-19T18:37:06.858008",
+  "validation_results": {
+    "dataset_path": "datasets/training_dataset",
+    "data_yaml_exists": true,
+    "classes_txt_exists": true,
+    "data_yaml_classes": [
+      "naiBa",
+      "naiMa",
+      "lingZhu",
+      "guaiWu",
+      "xiuLuo"
+    ],
+    "classes_txt_classes": [
+      "naiBa",
+      "naiMa",
+      "lingZhu",
+      "guaiWu",
+      "xiuLuo"
+    ],
+    "config_classes": [
+      "naiBa",
+      "naiMa",
+      "lingZhu",
+      "guaiWu",
+      "xiuLuo"
+    ],
+    "issues": [],
+    "recommendations": [
+      "类别顺序一致，无需修复"
+    ]
+  },
+  "summary": {
+    "total_issues": 0,
+    "has_data_yaml": true,
+    "has_classes_txt": true,
+    "is_consistent": true
+  }
+}
