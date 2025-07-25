@@ -305,11 +305,15 @@ class AIAssistantPanel(QWidget):
         # 界面状态
         self.current_predictions = []
         self.is_predicting = False
+        self.is_smart_predicting = False  # 智能预测状态标记
 
         # 设置界面
         self.setup_ui()
         self.setup_connections()
         self.setup_style()
+
+        # 加载智能预测设置
+        self.load_and_apply_smart_predict_setting()
 
         # 初始化AI组件
         self.initialize_ai_components()
@@ -741,6 +745,23 @@ class AIAssistantPanel(QWidget):
         group = QGroupBox("🎯 预测控制")
         layout = QVBoxLayout(group)
 
+        # 智能预测复选框
+        self.smart_predict_checkbox = QCheckBox("🤖 智能预测未标注图片")
+        self.smart_predict_checkbox.setObjectName("smartPredictCheckbox")
+        self.smart_predict_checkbox.setToolTip(
+            "开启后，切换到未标注图片时将自动执行预测\n"
+            "大幅提升标注效率，无需手动点击预测按钮"
+        )
+        # 默认开启智能预测功能
+        self.smart_predict_checkbox.setChecked(True)
+        layout.addWidget(self.smart_predict_checkbox)
+
+        # 添加分隔线
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(separator)
+
         # 单图预测按钮
         self.predict_current_btn = QPushButton("🖼️ 预测当前图像")
         self.predict_current_btn.setObjectName("predictCurrentButton")
@@ -829,6 +850,8 @@ class AIAssistantPanel(QWidget):
         self.predict_current_btn.clicked.connect(self.on_predict_current)
         self.predict_batch_btn.clicked.connect(self.on_predict_batch)
         self.cancel_btn.clicked.connect(self.on_cancel_prediction)
+        self.smart_predict_checkbox.stateChanged.connect(
+            self.on_smart_predict_changed)
 
         # 结果操作连接
         self.apply_btn.clicked.connect(self.on_apply_results)
@@ -956,7 +979,40 @@ class AIAssistantPanel(QWidget):
             QPushButton#refreshButton:hover {
                 background-color: #546e7a;
             }
-            
+
+            /* 智能预测复选框样式 */
+            QCheckBox#smartPredictCheckbox {
+                font-weight: 600;
+                color: #424242;
+                spacing: 8px;
+                padding: 8px;
+                background-color: #f0f8ff;
+                border: 1px solid #2196F3;
+                border-radius: 6px;
+            }
+
+            QCheckBox#smartPredictCheckbox::indicator {
+                width: 18px;
+                height: 18px;
+                border-radius: 3px;
+                border: 2px solid #2196F3;
+                background-color: white;
+            }
+
+            QCheckBox#smartPredictCheckbox::indicator:checked {
+                background-color: #2196F3;
+                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iOSIgdmlld0JveD0iMCAwIDEyIDkiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxwYXRoIGQ9Ik0xIDQuNUw0LjUgOEwxMSAxIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgo8L3N2Zz4K);
+            }
+
+            QCheckBox#smartPredictCheckbox::indicator:hover {
+                border-color: #1976d2;
+                background-color: #e3f2fd;
+            }
+
+            QCheckBox#smartPredictCheckbox::indicator:checked:hover {
+                background-color: #1976d2;
+            }
+
             /* 信息标签样式 */
             QLabel#modelInfoLabel {
                 background-color: #fff3e0;
@@ -5801,6 +5857,70 @@ pip install torch torchvision torchaudio
             self.update_status(error_msg, is_error=True)
             self.model_info_label.setText("❌ 模型切换失败")
 
+    def on_smart_predict_changed(self, state):
+        """智能预测复选框状态改变处理"""
+        try:
+            is_enabled = state == 2  # Qt.Checked = 2
+            if is_enabled:
+                status_text = "✅ 智能预测已开启 - 切换到未标注图片时将自动预测"
+            else:
+                status_text = "⏸️ 智能预测已关闭 - 需要手动点击预测按钮"
+
+            self.update_status(status_text)
+
+            # 保存设置到配置文件
+            self.save_smart_predict_setting(is_enabled)
+
+            logger.info(f"智能预测状态改变: {'开启' if is_enabled else '关闭'}")
+
+        except Exception as e:
+            error_msg = f"智能预测状态改变处理失败: {str(e)}"
+            logger.error(error_msg)
+            self.update_status(error_msg, is_error=True)
+
+    def save_smart_predict_setting(self, enabled: bool):
+        """保存智能预测设置"""
+        try:
+            from libs.settings import Settings
+            settings = Settings()
+            settings.load()  # 先加载现有设置
+            settings['ai_assistant/smart_predict_enabled'] = enabled
+            settings.save()  # 保存设置
+            logger.debug(f"智能预测设置已保存: {enabled}")
+        except Exception as e:
+            logger.error(f"保存智能预测设置失败: {str(e)}")
+
+    def load_smart_predict_setting(self) -> bool:
+        """加载智能预测设置"""
+        try:
+            from libs.settings import Settings
+            settings = Settings()
+            settings.load()  # 加载设置
+            # 默认开启智能预测
+            return settings.get('ai_assistant/smart_predict_enabled', True)
+        except Exception as e:
+            logger.error(f"加载智能预测设置失败: {str(e)}")
+            return True  # 默认开启
+
+    def is_smart_predict_enabled(self) -> bool:
+        """检查智能预测是否开启"""
+        try:
+            return self.smart_predict_checkbox.isChecked()
+        except Exception as e:
+            logger.error(f"检查智能预测状态失败: {str(e)}")
+            return False
+
+    def load_and_apply_smart_predict_setting(self):
+        """加载并应用智能预测设置"""
+        try:
+            enabled = self.load_smart_predict_setting()
+            self.smart_predict_checkbox.setChecked(enabled)
+            logger.debug(f"智能预测设置已加载并应用: {enabled}")
+        except Exception as e:
+            logger.error(f"加载智能预测设置失败: {str(e)}")
+            # 默认开启
+            self.smart_predict_checkbox.setChecked(True)
+
     def update_model_info(self, model_info: Dict):
         """更新模型信息显示（优化版，支持性能预览）"""
         try:
@@ -5956,7 +6076,8 @@ pip install torch torchvision torchaudio
             print(
                 f"[DEBUG] AI助手: 预测参数 - confidence: {confidence}, iou: {iou_threshold}, max_det: {max_detections}")
 
-            # 执行预测
+            # 执行预测（异步，结果将通过prediction_completed信号处理）
+            print(f"[DEBUG] AI助手: 启动预测，等待prediction_completed信号...")
             result = self.predictor.predict_single(
                 image_path=image_path,
                 conf_threshold=confidence,
@@ -5964,20 +6085,8 @@ pip install torch torchvision torchaudio
                 max_det=max_detections
             )
 
-            print(f"[DEBUG] AI助手: 预测完成，结果: {result}")
-
-            if result and result.detections:
-                # 显示预测结果
-                self.update_prediction_results(result)  # 传入单个结果
-                detection_count = len(result.detections)
-                self.update_status(f"预测完成，检测到 {detection_count} 个对象")
-                print(f"[DEBUG] AI助手: 检测到 {detection_count} 个对象")
-
-                # 发送预测结果应用信号
-                self.predictions_applied.emit([result])  # 包装成列表
-            else:
-                self.update_status("预测完成，未检测到对象")
-                print("[INFO] AI助手: 未检测到任何对象")
+            # 注意：结果处理现在完全在on_prediction_completed中进行
+            # 这里不再处理结果，避免重复处理
 
         except Exception as e:
             error_msg = f"预测执行失败: {str(e)}"
@@ -6153,12 +6262,34 @@ pip install torch torchvision torchaudio
                 f"检测数量: {len(result.detections)}"
             )
 
-            self.update_status(f"预测完成，检测到 {len(result.detections)} 个目标")
+            # 根据预测类型显示不同的状态信息
+            if self.is_smart_predicting:
+                if result.detections:
+                    print(
+                        f"[DEBUG] 智能预测完成，自动应用 {len(result.detections)} 个检测结果")
+                    self.predictions_applied.emit([result])
+                    self.update_status(
+                        f"🤖 智能预测完成，已自动应用 {len(result.detections)} 个检测结果")
+                else:
+                    print(f"[DEBUG] 智能预测完成，未检测到对象")
+                    self.update_status("🤖 智能预测完成，未检测到对象")
+
+                # 重置智能预测状态
+                self.is_smart_predicting = False
+            else:
+                # 手动预测：显示结果但不自动应用
+                self.update_status(f"预测完成，检测到 {len(result.detections)} 个目标")
+                if result.detections:
+                    print(f"[DEBUG] 手动预测完成，发送应用信号")
+                    self.predictions_applied.emit([result])
+                else:
+                    print(f"[DEBUG] 手动预测完成，未检测到对象")
 
         except Exception as e:
             error_msg = f"预测完成处理失败: {str(e)}"
             logger.error(error_msg)
             self.update_status(error_msg, is_error=True)
+            self.is_smart_predicting = False
 
     def on_batch_started(self, total_files: int):
         """批量预测开始处理"""

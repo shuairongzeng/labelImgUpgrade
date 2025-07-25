@@ -488,6 +488,10 @@ class MainWindow(QMainWindow, WindowMixin):
         self._beginner = True
         self.screencast = "https://youtu.be/p0nR2YsCY_U"
 
+        # 智能预测相关变量
+        self.smart_predict_timer = None
+        self.last_smart_predict_path = None
+
         # Store predefined classes file path for saving
         print(f"[DEBUG] 初始化预设类文件路径...")
         print(
@@ -2664,6 +2668,9 @@ class MainWindow(QMainWindow, WindowMixin):
             # 切换到画布视图
             self.main_layout.setCurrentIndex(1)
 
+            # 智能预测：如果开启了智能预测且当前图片未标注，则自动执行预测
+            self.trigger_smart_prediction_if_needed()
+
             return True
         return False
 
@@ -2813,6 +2820,98 @@ class MainWindow(QMainWindow, WindowMixin):
                     self.switch_unannotated_button.setToolTip('所有图片都已标注完成')
             else:
                 self.switch_unannotated_button.setToolTip('请先加载图片目录')
+
+    def trigger_smart_prediction_if_needed(self):
+        """
+        智能预测：如果开启了智能预测且当前图片未标注，则自动执行预测
+        使用防抖机制避免频繁切换时重复触发
+        """
+        try:
+            # 检查是否有AI助手面板
+            if not hasattr(self, 'ai_assistant_panel') or not self.ai_assistant_panel:
+                return
+
+            # 检查智能预测是否开启
+            if not self.ai_assistant_panel.is_smart_predict_enabled():
+                return
+
+            # 检查是否有当前图片
+            if not self.file_path:
+                return
+
+            # 防抖：如果是同一张图片，跳过
+            if self.last_smart_predict_path == self.file_path:
+                return
+
+            # 更新最后预测的图片路径
+            self.last_smart_predict_path = self.file_path
+
+            # 取消之前的定时器
+            if self.smart_predict_timer:
+                self.smart_predict_timer.stop()
+                self.smart_predict_timer = None
+
+            # 创建新的定时器，延迟执行预测（防抖）
+            self.smart_predict_timer = QTimer()
+            self.smart_predict_timer.setSingleShot(True)
+            self.smart_predict_timer.timeout.connect(
+                self._execute_smart_prediction)
+            self.smart_predict_timer.start(500)  # 延迟500ms执行
+
+        except Exception as e:
+            error_msg = f"智能预测触发失败: {str(e)}"
+            print(f"[ERROR] {error_msg}")
+            import traceback
+            traceback.print_exc()
+
+    def _execute_smart_prediction(self):
+        """
+        执行智能预测的实际逻辑
+        """
+        try:
+            # 检查当前图片是否已经标注
+            if self.is_image_annotated(self.file_path):
+                print(
+                    f"[DEBUG] 智能预测: 图片已标注，跳过预测: {os.path.basename(self.file_path)}")
+                return
+
+            # 检查模型是否已加载
+            if not self.ai_assistant_panel.predictor or not self.ai_assistant_panel.predictor.is_model_loaded():
+                print(f"[DEBUG] 智能预测: 模型未加载，跳过预测")
+                return
+
+            # 检查是否正在预测中（包括智能预测）
+            if hasattr(self.ai_assistant_panel, 'is_predicting') and self.ai_assistant_panel.is_predicting:
+                print(f"[DEBUG] 智能预测: 正在预测中，跳过")
+                return
+
+            if hasattr(self.ai_assistant_panel, 'is_smart_predicting') and self.ai_assistant_panel.is_smart_predicting:
+                print(f"[DEBUG] 智能预测: 智能预测正在进行中，跳过")
+                return
+
+            print(
+                f"[DEBUG] 智能预测: 开始自动预测未标注图片: {os.path.basename(self.file_path)}")
+
+            # 显示智能预测状态
+            self.statusBar().showMessage(
+                f'🤖 智能预测: 正在预测 {os.path.basename(self.file_path)}...')
+
+            # 设置智能预测状态标记
+            self.ai_assistant_panel.is_smart_predicting = True
+
+            # 使用正确的信号机制触发预测，确保结果能够自动显示
+            confidence = self.ai_assistant_panel.get_current_confidence()
+            print(f"[DEBUG] 智能预测: 使用信号机制触发预测，置信度: {confidence}")
+
+            # 发送预测请求信号，这样预测结果会自动应用到画布
+            self.ai_assistant_panel.prediction_requested.emit(
+                self.file_path, confidence)
+
+        except Exception as e:
+            error_msg = f"智能预测执行失败: {str(e)}"
+            print(f"[ERROR] {error_msg}")
+            import traceback
+            traceback.print_exc()
 
     def show_bounding_box_from_annotation_file(self, file_path):
         # 检查file_path是否为None，避免TypeError
@@ -3714,10 +3813,13 @@ class MainWindow(QMainWindow, WindowMixin):
                 # 这是PredictionResult对象，获取其中的detections
                 print("[DEBUG] 接收到PredictionResult对象")
                 detections = first_item.detections
+                is_smart_prediction = getattr(
+                    first_item, 'is_smart_prediction', False)
             else:
                 # 这是Detection对象列表
                 print("[DEBUG] 接收到Detection对象列表")
                 detections = predictions
+                is_smart_prediction = False
 
             print(f"[DEBUG] 开始应用 {len(detections)} 个检测结果到画布")
 
@@ -3755,11 +3857,20 @@ class MainWindow(QMainWindow, WindowMixin):
             # 设置为已修改状态
             self.set_dirty()
 
+            # 显示成功状态
+            if is_smart_prediction:
+                self.statusBar().showMessage(
+                    f'🎉 智能预测完成！已自动添加 {len(detections)} 个检测框到画布')
+            else:
+                self.statusBar().showMessage(
+                    f'✅ 预测结果已应用，共添加 {len(detections)} 个检测框')
+
             print(f"[DEBUG] 成功应用所有预测结果到画布，共 {len(detections)} 个对象")
 
         except Exception as e:
             error_msg = f"AI预测结果应用失败: {str(e)}"
             print(f"[ERROR] {error_msg}")
+            self.statusBar().showMessage(f'❌ 预测结果应用失败: {str(e)}')
             import traceback
             traceback.print_exc()
 

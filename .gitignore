@@ -1,30 +1,6 @@
-resources/icons/.DS_Store
-resources.py
-labelImg.egg-info*
-
-*.pyc
-.*.swp
-
-build/
-dist/
-
-tags
-cscope*
-.ycm_extra_conf.py
-.subvimrc
-.vscode
-*.pkl
-Pipfile
-*.xml
-
-# MacOS System-Generated
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
+# =============================================================================
+# Python 项目通用忽略文件
+# =============================================================================
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -33,17 +9,238 @@ __pycache__/
 
 # C extensions
 *.so
-*.vs
-*.git
 
-# IDE
-*.DS_Store
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+#  Usually these files are written by a python script from a template
+#  before PyInstaller builds the exe, so as to inject date/other infos into it.
+*.manifest
+*.spec.bak
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.virtualenv/
+Pipfile
+Pipfile.lock
+
+# =============================================================================
+# 操作系统特定文件
+# =============================================================================
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.AppleDouble
+.LSOverride
+.Spotlight-V100
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# =============================================================================
+# IDE 和编辑器
+# =============================================================================
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# PyCharm
+.idea/
+*.iws
 *.iml
-.idea
+*.ipr
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+.*.swp
+.*.swo
+*~
+.netrwhist
+tags
+cscope*
+.ycm_extra_conf.py
+.subvimrc
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# =============================================================================
+# 项目特定忽略
+# =============================================================================
+
+# 构建和打包相关
+labelImg.egg-info/
+resources.py
+
+# 临时文件和缓存
+*.pkl
+*.cache
+tmp.*
+temp/
+.tmp/
+
+# 日志文件
+*.log
+logs/
+log/
+
+# 配置备份
+configs/backups/*
+!configs/backups/.gitkeep
+
+# 数据集和模型文件（保留示例，忽略大文件）
+datasets/*
+!datasets/README.md
+!datasets/.gitkeep
+
+# AI模型文件（保留预训练模型，忽略自定义训练结果）
+models/custom/*
+!models/custom/README.md
+!models/custom/.gitkeep
+*.pt
+*.pth
+*.onnx
+*.trt
+*.engine
+!models/yolov8n.pt
+!yolo11n.pt
+!yolov8n.pt
+
+# 训练结果和运行日志
+runs/*
+!runs/README.md
+!runs/.gitkeep
+
+# 测试图片（保留少量示例）
+test_images/*
+!test_images/README.md
+!test_images/.gitkeep
+
+# 标注文件（根据需要调整）
+# 注意：不要忽略所有 XML 文件，因为它们可能是重要的标注数据
+# *.xml  # 已移除，避免误删标注文件
+
+# YOLO 格式标注文件的备份
+*.txt.bak
+*.yaml.bak
+
+# =============================================================================
+# 开发和调试文件
+# =============================================================================
+
+# 调试文件
+debug/
+*.debug
+
+# 性能分析
+*.prof
+*.pstats
+
+# 数据库文件
+*.db
+*.sqlite
+*.sqlite3
+
+# 其他临时文件
 .unison*
 .attach*
-tmp.*
-datasets/*
-models/custom/*
-runs/*
-test_images/*
+*.orig
+*.rej
+.*.orig
+.*.rej
+
+# 环境变量文件
+.env.local
+.env.development
+.env.test
+.env.production

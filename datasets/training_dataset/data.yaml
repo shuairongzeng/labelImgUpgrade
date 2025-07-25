@@ -6,6 +6,7 @@ names:
   4: xiuLuo
   5: xiuLiShang
   6: lingQu
+  7: door
 path: D:\GitHub\python_labelImg-master\labelImg-master\datasets\training_dataset
 test: null
 train: images/train

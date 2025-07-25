@@ -5,3 +5,4 @@ naiBa
 xiuLuo
 xiuLiShang
 lingQu
+door
