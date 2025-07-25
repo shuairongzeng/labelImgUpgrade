@@ -2708,8 +2708,15 @@ class MainWindow(QMainWindow, WindowMixin):
                 self.load_labels(self.label_file.shapes)
             self.set_clean()
             self.canvas.setEnabled(True)
-            self.adjust_scale(initial=True)
-            self.paint_canvas()
+
+            # 延迟缩放计算，确保窗口完全初始化
+            from PyQt5.QtCore import QTimer
+
+            def delayed_scale_adjustment():
+                self.adjust_scale(initial=True)
+                self.paint_canvas()
+
+            QTimer.singleShot(50, delayed_scale_adjustment)  # 50ms延迟
             self.add_recent_file(self.file_path)
             self.toggle_actions(True)
             self.show_bounding_box_from_annotation_file(self.file_path)
@@ -3033,7 +3040,21 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def paint_canvas(self):
         assert not self.image.isNull(), "cannot paint null image"
-        self.canvas.scale = 0.01 * self.zoom_widget.value()
+
+        # 缩放状态一致性检查和调试信息
+        zoom_value = self.zoom_widget.value()
+
+        # 如果缩放值异常，重新计算以保持一致性
+        if self.zoom_mode != self.MANUAL_ZOOM and hasattr(self, 'canvas') and self.canvas.pixmap:
+            expected_value = self.scalers[self.zoom_mode]()
+            expected_zoom = int(100 * expected_value)
+
+            # 如果当前缩放值与期望值差异较大，重新设置
+            if abs(zoom_value - expected_zoom) > 5:  # 允许5%的误差
+                self.zoom_widget.setValue(expected_zoom)
+                zoom_value = expected_zoom
+
+        self.canvas.scale = 0.01 * zoom_value
         self.canvas.overlay_color = self.light_widget.color()
         self.canvas.label_font_size = int(
             0.02 * max(self.image.width(), self.image.height()))
@@ -3044,24 +3065,48 @@ class MainWindow(QMainWindow, WindowMixin):
         self.update_status_bar_info()
 
     def adjust_scale(self, initial=False):
-        value = self.scalers[self.FIT_WINDOW if initial else self.zoom_mode]()
-        self.zoom_widget.setValue(int(100 * value))
+        # 当initial=True时，表示首次加载图片，应该使用FIT_WINDOW模式
+        # 并且同步更新zoom_mode以保持一致性
+        if initial:
+            self.zoom_mode = self.FIT_WINDOW
+            # 同时更新UI状态
+            self.actions.fitWindow.setChecked(True)
+            self.actions.fitWidth.setChecked(False)
+
+        value = self.scalers[self.zoom_mode]()
+        zoom_percentage = int(100 * value)
+        self.zoom_widget.setValue(zoom_percentage)
 
     def scale_fit_window(self):
         """Figure out the size of the pixmap in order to fit the main widget."""
         e = 2.0  # So that no scrollbars are generated.
         w1 = self.centralWidget().width() - e
         h1 = self.centralWidget().height() - e
+
+        # 确保窗口尺寸有效，避免在初始化时计算错误
+        if w1 <= 0 or h1 <= 0:
+            return 1.0  # 返回默认缩放比例
+
         a1 = w1 / h1
         # Calculate a new scale value based on the pixmap's aspect ratio.
         w2 = self.canvas.pixmap.width() - 0.0
         h2 = self.canvas.pixmap.height() - 0.0
+
+        # 确保图片尺寸有效
+        if w2 <= 0 or h2 <= 0:
+            return 1.0  # 返回默认缩放比例
+
         a2 = w2 / h2
         return w1 / w2 if a2 >= a1 else h1 / h2
 
     def scale_fit_width(self):
         # The epsilon does not seem to work too well here.
         w = self.centralWidget().width() - 2.0
+
+        # 确保窗口宽度和图片宽度有效
+        if w <= 0 or self.canvas.pixmap.width() <= 0:
+            return 1.0  # 返回默认缩放比例
+
         return w / self.canvas.pixmap.width()
 
     def closeEvent(self, event):
