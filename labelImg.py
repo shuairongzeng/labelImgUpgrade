@@ -590,6 +590,35 @@ class MainWindow(QMainWindow, WindowMixin):
         # 初始状态下禁用按钮，直到加载图片列表
         self.switch_unannotated_button.setEnabled(False)
 
+        # Create delete current image button
+        self.delete_current_image_button = QPushButton('🗑️ 删除当前图片')
+        self.delete_current_image_button.setToolTip('删除当前显示的图片文件（不可撤销）')
+        self.delete_current_image_button.setStyleSheet("""
+            QPushButton {
+                background-color: #ff5722;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 16px;
+                font-weight: 500;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #e64a19;
+            }
+            QPushButton:pressed {
+                background-color: #d84315;
+            }
+            QPushButton:disabled {
+                background-color: #bdbdbd;
+                color: #757575;
+            }
+        """)
+        self.delete_current_image_button.clicked.connect(
+            self.delete_current_image)
+        # 初始状态下禁用按钮，直到加载图片
+        self.delete_current_image_button.setEnabled(False)
+
         # Create a widget for edit and diffc button
         self.diffc_button = QCheckBox(get_str('useDifficult'))
         self.diffc_button.setChecked(False)
@@ -612,6 +641,7 @@ class MainWindow(QMainWindow, WindowMixin):
         list_layout.addWidget(use_default_label_container)
         list_layout.addWidget(self.clear_labels_button)
         list_layout.addWidget(self.switch_unannotated_button)
+        list_layout.addWidget(self.delete_current_image_button)
 
         # 添加标签搜索框
         label_search_layout = QHBoxLayout()
@@ -823,6 +853,14 @@ class MainWindow(QMainWindow, WindowMixin):
         delete_image = action(get_str('deleteImg'), self.delete_image,
                               'Ctrl+Shift+D', 'close', get_str('deleteImgDetail'))
 
+        # 文件列表相关的actions
+        remove_from_list = action('从列表移除', self.remove_file_from_list,
+                                  None, 'remove', '从列表中移除文件，但保留磁盘文件')
+        delete_file_permanently = action('彻底删除', self.delete_file_permanently,
+                                         None, 'delete', '从磁盘彻底删除文件')
+        show_in_explorer = action('在文件管理器中显示', self.show_file_in_explorer,
+                                  None, 'folder', '在文件管理器中显示文件位置')
+
         reset_all = action(get_str('resetAll'), self.reset_all,
                            None, 'resetall', get_str('resetAllDetail'))
 
@@ -936,6 +974,14 @@ class MainWindow(QMainWindow, WindowMixin):
         self.label_list.customContextMenuRequested.connect(
             self.pop_label_list_menu)
 
+        # File list context menu.
+        file_menu = QMenu()
+        add_actions(file_menu, (remove_from_list,
+                    delete_file_permanently, None, show_in_explorer))
+        self.file_list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.file_list_widget.customContextMenuRequested.connect(
+            self.pop_file_list_menu)
+
         # Draw squares/rectangles
         self.draw_squares_option = QAction(get_str('drawSquares'), self)
         self.draw_squares_option.setShortcut('Ctrl+Shift+R')
@@ -999,7 +1045,8 @@ class MainWindow(QMainWindow, WindowMixin):
             tools=self.menu('工具'),
             help=self.menu(get_str('menu_help')),
             recentFiles=QMenu(get_str('menu_openRecent')),
-            labelList=label_menu)
+            labelList=label_menu,
+            fileList=file_menu)
 
         # Auto saving : Enable auto saving if pressing next
         self.auto_saving = QAction(get_str('autoSaveMode'), self)
@@ -2051,6 +2098,10 @@ class MainWindow(QMainWindow, WindowMixin):
         for action in self.actions.onLoadActive:
             action.setEnabled(value)
 
+        # 控制删除当前图片按钮的状态
+        if hasattr(self, 'delete_current_image_button'):
+            self.delete_current_image_button.setEnabled(value)
+
     def queue_event(self, function):
         QTimer.singleShot(0, function)
 
@@ -2172,6 +2223,16 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def pop_label_list_menu(self, point):
         self.menus.labelList.exec_(self.label_list.mapToGlobal(point))
+
+    def pop_file_list_menu(self, point):
+        """显示文件列表右键菜单"""
+        # 检查是否有选中的文件
+        current_item = self.file_list_widget.currentItem()
+        if current_item is None:
+            return
+
+        # 显示右键菜单
+        self.menus.fileList.exec_(self.file_list_widget.mapToGlobal(point))
 
     def edit_label(self):
         if not self.canvas.editing():
@@ -2653,6 +2714,9 @@ class MainWindow(QMainWindow, WindowMixin):
             self.toggle_actions(True)
             self.show_bounding_box_from_annotation_file(self.file_path)
 
+            # 更新按钮状态
+            self.update_switch_button_state()
+
             counter = self.counter_str()
             self.setWindowTitle(__appname__ + ' ' + file_path + ' ' + counter)
 
@@ -2802,7 +2866,7 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def update_switch_button_state(self):
         """
-        更新切换到未标注图片按钮的状态
+        更新切换到未标注图片按钮和删除当前图片按钮的状态
         """
         if hasattr(self, 'switch_unannotated_button'):
             # 如果有图片列表则启用按钮，否则禁用
@@ -2820,6 +2884,20 @@ class MainWindow(QMainWindow, WindowMixin):
                     self.switch_unannotated_button.setToolTip('所有图片都已标注完成')
             else:
                 self.switch_unannotated_button.setToolTip('请先加载图片目录')
+
+        # 更新删除当前图片按钮的状态
+        if hasattr(self, 'delete_current_image_button'):
+            # 只有当前有加载的图片时才启用删除按钮
+            has_current_image = bool(
+                self.file_path and os.path.exists(self.file_path))
+            self.delete_current_image_button.setEnabled(has_current_image)
+
+            if has_current_image:
+                current_file = os.path.basename(self.file_path)
+                self.delete_current_image_button.setToolTip(
+                    f'删除当前图片: {current_file}（不可撤销）')
+            else:
+                self.delete_current_image_button.setToolTip('没有可删除的图片')
 
     def trigger_smart_prediction_if_needed(self):
         """
@@ -3300,12 +3378,37 @@ class MainWindow(QMainWindow, WindowMixin):
         self.canvas.setEnabled(False)
         self.actions.saveAs.setEnabled(False)
 
+        # 更新按钮状态
+        self.update_switch_button_state()
+
     def delete_image(self):
+        """删除当前图片（通过菜单或快捷键调用）"""
         delete_path = self.file_path
         if delete_path is not None:
+            # 添加确认对话框
+            reply = QMessageBox.question(self, '确认删除',
+                                         f'确定要彻底删除当前图片吗？\n\n{os.path.basename(delete_path)}\n\n'
+                                         '⚠️ 警告：图片将从磁盘彻底删除，此操作不可撤销！',
+                                         QMessageBox.Yes | QMessageBox.No,
+                                         QMessageBox.No)
+
+            if reply != QMessageBox.Yes:
+                return
+
             idx = self.cur_img_idx
             if os.path.exists(delete_path):
                 os.remove(delete_path)
+
+                # 删除对应的标注文件
+                annotation_files = [
+                    os.path.splitext(delete_path)[0] + '.xml',
+                    os.path.splitext(delete_path)[0] + '.txt',
+                    os.path.splitext(delete_path)[0] + '.json'
+                ]
+                for ann_file in annotation_files:
+                    if os.path.exists(ann_file):
+                        os.remove(ann_file)
+
             self.import_dir_images(self.last_open_dir)
             if self.img_count > 0:
                 self.cur_img_idx = min(idx, self.img_count - 1)
@@ -3313,6 +3416,241 @@ class MainWindow(QMainWindow, WindowMixin):
                 self.load_file(filename)
             else:
                 self.close_file()
+
+            # 显示状态信息
+            self.status(f"已彻底删除: {os.path.basename(delete_path)}")
+
+    def delete_current_image(self):
+        """从标签面板删除当前图片（通过按钮调用）"""
+        # 检查是否有当前加载的图片
+        if not self.file_path or not os.path.exists(self.file_path):
+            QMessageBox.information(self, '提示', '当前没有加载的图片可以删除。')
+            return
+
+        # 获取当前图片信息
+        current_file = os.path.basename(self.file_path)
+
+        # 显示确认对话框
+        reply = QMessageBox.question(
+            self,
+            '🗑️ 确认删除当前图片',
+            f'确定要彻底删除当前显示的图片吗？\n\n'
+            f'📁 文件名: {current_file}\n'
+            f'📂 路径: {os.path.dirname(self.file_path)}\n\n'
+            f'⚠️ 警告：\n'
+            f'• 图片文件将从磁盘彻底删除\n'
+            f'• 对应的标注文件也会被删除\n'
+            f'• 此操作不可撤销！\n\n'
+            f'请确认是否继续？',
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No  # 默认选择"否"以防误操作
+        )
+
+        if reply != QMessageBox.Yes:
+            return
+
+        try:
+            delete_path = self.file_path
+            current_idx = self.cur_img_idx
+
+            # 删除图片文件
+            if os.path.exists(delete_path):
+                os.remove(delete_path)
+
+                # 删除对应的标注文件
+                annotation_files = [
+                    os.path.splitext(delete_path)[0] + '.xml',
+                    os.path.splitext(delete_path)[0] + '.txt',
+                    os.path.splitext(delete_path)[0] + '.json'
+                ]
+                deleted_annotations = []
+                for ann_file in annotation_files:
+                    if os.path.exists(ann_file):
+                        os.remove(ann_file)
+                        deleted_annotations.append(os.path.basename(ann_file))
+
+            # 从图片列表中移除
+            if delete_path in self.m_img_list:
+                self.m_img_list.remove(delete_path)
+                self.img_count = len(self.m_img_list)
+
+            # 从文件列表界面中移除
+            for i in range(self.file_list_widget.count()):
+                item = self.file_list_widget.item(i)
+                if item and item.text() == delete_path:
+                    self.file_list_widget.takeItem(i)
+                    break
+
+            # 处理删除后的图片切换
+            if self.img_count > 0:
+                # 如果还有图片，加载下一张
+                self.cur_img_idx = min(current_idx, self.img_count - 1)
+                next_filename = self.m_img_list[self.cur_img_idx]
+                self.load_file(next_filename)
+            else:
+                # 如果没有图片了，关闭当前文件并禁用相关按钮
+                self.close_file()
+                self.delete_current_image_button.setEnabled(False)
+
+            # 更新切换按钮状态
+            self.update_switch_button_state()
+
+            # 显示删除成功信息
+            status_msg = f"✅ 已删除: {current_file}"
+            if deleted_annotations:
+                status_msg += f" (含标注: {', '.join(deleted_annotations)})"
+            self.status(status_msg)
+
+        except Exception as e:
+            QMessageBox.critical(self, '删除失败', f'删除文件时发生错误：\n\n{str(e)}')
+
+    def remove_file_from_list(self):
+        """从列表中移除文件，但不删除磁盘文件"""
+        current_item = self.file_list_widget.currentItem()
+        if current_item is None:
+            return
+
+        # 获取要移除的文件路径
+        file_path = current_item.text()
+
+        # 确认对话框
+        reply = QMessageBox.question(self, '确认移除',
+                                     f'确定要从列表中移除文件吗？\n\n{os.path.basename(file_path)}\n\n'
+                                     '注意：文件将从界面列表中移除，但不会删除磁盘文件。',
+                                     QMessageBox.Yes | QMessageBox.No,
+                                     QMessageBox.No)
+
+        if reply != QMessageBox.Yes:
+            return
+
+        try:
+            # 获取当前文件索引
+            if file_path in self.m_img_list:
+                idx = self.m_img_list.index(file_path)
+
+                # 从列表中移除
+                self.m_img_list.remove(file_path)
+                self.img_count = len(self.m_img_list)
+
+                # 从界面列表中移除
+                row = self.file_list_widget.row(current_item)
+                self.file_list_widget.takeItem(row)
+
+                # 如果移除的是当前显示的文件，需要加载下一个文件
+                if file_path == self.file_path:
+                    if self.img_count > 0:
+                        # 调整索引
+                        self.cur_img_idx = min(idx, self.img_count - 1)
+                        filename = self.m_img_list[self.cur_img_idx]
+                        self.load_file(filename)
+                    else:
+                        self.close_file()
+                else:
+                    # 更新当前文件索引
+                    if self.file_path in self.m_img_list:
+                        self.cur_img_idx = self.m_img_list.index(
+                            self.file_path)
+
+                # 更新切换按钮状态
+                self.update_switch_button_state()
+
+                # 显示状态信息
+                self.status(f"已从列表移除: {os.path.basename(file_path)}")
+
+        except Exception as e:
+            QMessageBox.warning(self, '错误', f'移除文件失败：{str(e)}')
+
+    def delete_file_permanently(self):
+        """彻底删除文件（从磁盘删除）"""
+        current_item = self.file_list_widget.currentItem()
+        if current_item is None:
+            return
+
+        # 获取要删除的文件路径
+        file_path = current_item.text()
+
+        # 确认对话框
+        reply = QMessageBox.question(self, '确认删除',
+                                     f'确定要彻底删除文件吗？\n\n{os.path.basename(file_path)}\n\n'
+                                     '⚠️ 警告：文件将从磁盘彻底删除，此操作不可撤销！',
+                                     QMessageBox.Yes | QMessageBox.No,
+                                     QMessageBox.No)
+
+        if reply != QMessageBox.Yes:
+            return
+
+        try:
+            # 删除磁盘文件
+            if os.path.exists(file_path):
+                os.remove(file_path)
+
+            # 删除对应的标注文件
+            annotation_files = [
+                os.path.splitext(file_path)[0] + '.xml',
+                os.path.splitext(file_path)[0] + '.txt',
+                os.path.splitext(file_path)[0] + '.json'
+            ]
+            for ann_file in annotation_files:
+                if os.path.exists(ann_file):
+                    os.remove(ann_file)
+
+            # 从列表中移除
+            if file_path in self.m_img_list:
+                idx = self.m_img_list.index(file_path)
+                self.m_img_list.remove(file_path)
+                self.img_count = len(self.m_img_list)
+
+                # 从界面列表中移除
+                row = self.file_list_widget.row(current_item)
+                self.file_list_widget.takeItem(row)
+
+                # 如果删除的是当前显示的文件，需要加载下一个文件
+                if file_path == self.file_path:
+                    if self.img_count > 0:
+                        self.cur_img_idx = min(idx, self.img_count - 1)
+                        filename = self.m_img_list[self.cur_img_idx]
+                        self.load_file(filename)
+                    else:
+                        self.close_file()
+                else:
+                    # 更新当前文件索引
+                    if self.file_path in self.m_img_list:
+                        self.cur_img_idx = self.m_img_list.index(
+                            self.file_path)
+
+                # 更新切换按钮状态
+                self.update_switch_button_state()
+
+                # 显示状态信息
+                self.status(f"已彻底删除: {os.path.basename(file_path)}")
+
+        except Exception as e:
+            QMessageBox.warning(self, '错误', f'删除文件失败：{str(e)}')
+
+    def show_file_in_explorer(self):
+        """在文件管理器中显示文件"""
+        current_item = self.file_list_widget.currentItem()
+        if current_item is None:
+            return
+
+        file_path = current_item.text()
+
+        try:
+            import platform
+            import subprocess
+
+            if platform.system() == 'Windows':
+                # Windows系统
+                subprocess.run(['explorer', '/select,', file_path])
+            elif platform.system() == 'Darwin':
+                # macOS系统
+                subprocess.run(['open', '-R', file_path])
+            else:
+                # Linux系统
+                subprocess.run(['xdg-open', os.path.dirname(file_path)])
+
+        except Exception as e:
+            QMessageBox.warning(self, '错误', f'无法打开文件管理器：{str(e)}')
 
     def reset_all(self):
         """重置所有设置并自动重启程序"""

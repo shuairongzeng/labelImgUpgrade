@@ -26,6 +26,239 @@ from .ai_assistant.yolo_trainer import YOLOTrainer, TrainingConfig
 logger = logging.getLogger(__name__)
 
 
+class CollapsibleGroupBox(QGroupBox):
+    """可折叠的GroupBox组件"""
+
+    def __init__(self, title="", collapsed=True, parent=None):
+        super().__init__(title, parent)
+        self.collapsed = collapsed
+        self.content_widget = None
+        self.animation = None
+        self.original_height = 0
+
+        # 设置样式，使标题栏可点击
+        self.setStyleSheet("""
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #bdc3c7;
+                border-radius: 5px;
+                margin-top: 1ex;
+                padding-top: 10px;
+            }
+            QGroupBox:hover {
+                border-color: #3498db;
+            }
+        """)
+
+        # 设置鼠标指针
+        self.setCursor(QCursor(Qt.PointingHandCursor))
+
+        # 初始化动画
+        self.setup_animation()
+
+        # 设置初始状态
+        if self.collapsed:
+            self.setMaximumHeight(30)  # 只显示标题栏
+            self.setMinimumHeight(30)  # 固定高度
+
+    def setup_animation(self):
+        """设置动画"""
+        self.animation = QPropertyAnimation(self, b"maximumHeight")
+        self.animation.setDuration(250)
+        self.animation.setEasingCurve(QEasingCurve.OutCubic)
+
+    def set_content_widget(self, widget):
+        """设置内容组件"""
+        self.content_widget = widget
+
+        # 创建布局并添加内容
+        layout = QVBoxLayout(self)
+        layout.addWidget(widget)
+
+        # 获取原始高度（使用估算值避免显示widget导致状态重置）
+        self.original_height = 200  # 使用估算的展开高度
+
+        # 强制应用当前的折叠状态
+        if self.collapsed:
+            self._apply_collapsed_state()
+        else:
+            self._apply_expanded_state()
+
+    def _apply_collapsed_state(self):
+        """应用折叠状态"""
+        print(f"[DEBUG] _apply_collapsed_state: 开始应用")
+        if self.content_widget:
+            self.content_widget.hide()
+            print(f"[DEBUG] _apply_collapsed_state: 隐藏内容")
+        self.setMaximumHeight(30)
+        self.setMinimumHeight(30)
+        print(f"[DEBUG] _apply_collapsed_state: 设置高度限制30px")
+
+    def _apply_expanded_state(self):
+        """应用展开状态"""
+        if self.content_widget:
+            self.content_widget.show()
+        self.setMaximumHeight(self.original_height)
+        self.setMinimumHeight(0)  # 恢复最小高度限制
+
+    def mousePressEvent(self, event):
+        """鼠标点击事件"""
+        if event.button() == Qt.LeftButton:
+            # 检查点击位置是否在标题区域
+            title_rect = QRect(0, 0, self.width(), 30)
+            if title_rect.contains(event.pos()):
+                self.toggle_collapsed()
+        super().mousePressEvent(event)
+
+    def toggle_collapsed(self):
+        """切换折叠状态"""
+        self.collapsed = not self.collapsed
+
+        if self.collapsed:
+            self.collapse()
+        else:
+            self.expand()
+
+        # 保存用户偏好
+        self.save_collapsed_state()
+
+    def collapse(self):
+        """折叠"""
+        # 更新标题以显示摘要信息
+        self.update_title_for_collapsed_state()
+
+        # 动画到折叠高度
+        self.animation.setStartValue(self.height())
+        self.animation.setEndValue(30)
+        self.animation.finished.connect(self._on_collapse_finished)
+        self.animation.start()
+
+    def expand(self):
+        """展开"""
+        # 恢复原始标题
+        self.update_title_for_expanded_state()
+
+        # 动画到展开高度
+        self.animation.setStartValue(self.height())
+        self.animation.setEndValue(self.original_height)
+        self.animation.finished.connect(self._on_expand_finished)
+        self.animation.start()
+
+    def _on_collapse_finished(self):
+        """折叠动画完成"""
+        if self.content_widget:
+            self.content_widget.hide()
+        self.setMinimumHeight(30)
+        self.animation.finished.disconnect()
+
+    def _on_expand_finished(self):
+        """展开动画完成"""
+        if self.content_widget:
+            self.content_widget.show()
+        self.setMinimumHeight(0)
+        self.animation.finished.disconnect()
+
+    def update_title_for_collapsed_state(self):
+        """更新折叠状态的标题"""
+        # 子类可以重写此方法来自定义折叠状态的标题
+        pass
+
+    def update_title_for_expanded_state(self):
+        """更新展开状态的标题"""
+        # 子类可以重写此方法来自定义展开状态的标题
+        pass
+
+    def save_collapsed_state(self):
+        """保存折叠状态到设置"""
+        try:
+            from libs.settings import Settings
+            settings = Settings()
+            settings.load()
+            settings[f'ai_assistant/classes_info_collapsed'] = self.collapsed
+            settings.save()
+        except Exception as e:
+            logger.error(f"保存折叠状态失败: {str(e)}")
+
+
+class CollapsibleClassesInfoGroup(CollapsibleGroupBox):
+    """可折叠的类别信息组"""
+
+    def __init__(self, parent=None):
+        # 加载保存的折叠状态
+        saved_collapsed = self.load_collapsed_state()
+
+        # 调用父类初始化，使用加载的状态
+        super().__init__("📋 类别信息", collapsed=saved_collapsed, parent=parent)
+
+        self.parent_panel = parent
+        self.model_classes_count = None
+        self.user_classes_count = None
+
+    def update_title_for_collapsed_state(self):
+        """更新折叠状态的标题，显示摘要信息"""
+        model_count = "未加载"
+        user_count = "未加载"
+
+        if self.model_classes_count:
+            model_text = self.model_classes_count.text()
+            # 提取数字部分，如果是"X 个"格式
+            if " 个" in model_text:
+                model_count = model_text.replace(" 个", "")
+            else:
+                model_count = model_text
+
+        if self.user_classes_count:
+            user_text = self.user_classes_count.text()
+            # 提取数字部分，如果是"X 个"格式
+            if " 个" in user_text:
+                user_count = user_text.replace(" 个", "")
+            else:
+                user_count = user_text
+
+        # 创建更简洁的摘要标题
+        summary_title = f"▶ 📋 类别信息 (模型:{model_count} 用户:{user_count})"
+        self.setTitle(summary_title)
+
+    def update_title_for_expanded_state(self):
+        """更新展开状态的标题"""
+        self.setTitle("▼ 📋 类别信息")
+
+    def load_collapsed_state(self):
+        """从设置加载折叠状态"""
+        try:
+            from libs.settings import Settings
+            settings = Settings()
+            settings.load()
+
+            # 检查是否有保存的状态
+            saved_state = settings.get(
+                'ai_assistant/classes_info_collapsed', None)
+            print(f"[DEBUG] load_collapsed_state: saved_state={saved_state}")
+
+            # 如果没有保存的状态，使用默认折叠状态
+            # 这确保了新用户的默认体验是折叠的（节省空间）
+            if saved_state is None:
+                # 第一次使用，保存默认折叠状态
+                settings['ai_assistant/classes_info_collapsed'] = True
+                settings.save()
+                print(f"[DEBUG] load_collapsed_state: 保存并返回默认True")
+                return True
+            else:
+                # 强制返回True来确保默认折叠
+                print(
+                    f"[DEBUG] load_collapsed_state: 强制返回True（忽略保存的{saved_state}）")
+                return True
+
+        except Exception as e:
+            logger.error(f"加载折叠状态失败: {str(e)}")
+            return True  # 默认折叠
+
+
 class InstallThread(QThread):
     """PyTorch安装线程"""
     progress_updated = pyqtSignal(int)
@@ -353,10 +586,10 @@ class AIAssistantPanel(QWidget):
 
     def setup_ui(self):
         """设置用户界面"""
-        # 主布局
+        # 主布局 - 优化间距以适应可折叠组件
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(8, 8, 8, 8)
-        main_layout.setSpacing(8)
+        main_layout.setSpacing(6)  # 减少间距，为内容腾出更多空间
 
         # 标题
         title_label = QLabel("🤖 AI 助手")
@@ -368,8 +601,8 @@ class AIAssistantPanel(QWidget):
         main_layout.addWidget(model_group)
 
         # 类别信息区域 (新增)
-        classes_group = self.create_classes_info_group()
-        main_layout.addWidget(classes_group)
+        self.classes_group = self.create_classes_info_group()
+        main_layout.addWidget(self.classes_group)
 
         # 训练信息区域 (新增)
         training_group = self.create_training_info_group()
@@ -418,10 +651,14 @@ class AIAssistantPanel(QWidget):
 
         return group
 
-    def create_classes_info_group(self) -> QGroupBox:
-        """创建类别信息组 - 紧凑设计"""
-        group = QGroupBox("📋 类别信息")
-        layout = QVBoxLayout(group)
+    def create_classes_info_group(self) -> CollapsibleClassesInfoGroup:
+        """创建可折叠的类别信息组"""
+        # 创建可折叠组件
+        group = CollapsibleClassesInfoGroup(self)
+
+        # 创建内容容器
+        content_widget = QWidget()
+        layout = QVBoxLayout(content_widget)
         layout.setSpacing(6)  # 减少间距
 
         # 第一行：类别统计信息 + 操作按钮
@@ -544,6 +781,27 @@ class AIAssistantPanel(QWidget):
         top_layout.addLayout(buttons_layout)
 
         layout.addLayout(top_layout)
+
+        # 设置内容到可折叠组件
+        group.set_content_widget(content_widget)
+
+        # 保存引用以便更新标题
+        group.model_classes_count = self.model_classes_count
+        group.user_classes_count = self.user_classes_count
+
+        # 确保正确应用折叠状态和标题
+        print(
+            f"[DEBUG] create_classes_info_group 最终: collapsed={group.collapsed}")
+        print(f"[DEBUG] create_classes_info_group 最终: height={group.height()}")
+        print(
+            f"[DEBUG] create_classes_info_group 最终: maxHeight={group.maximumHeight()}")
+        print(
+            f"[DEBUG] create_classes_info_group 最终: minHeight={group.minimumHeight()}")
+
+        if group.collapsed:
+            group.update_title_for_collapsed_state()
+        else:
+            group.update_title_for_expanded_state()
 
         return group
 
@@ -696,9 +954,11 @@ class AIAssistantPanel(QWidget):
         return group
 
     def create_prediction_params_group(self) -> QGroupBox:
-        """创建预测参数组"""
+        """创建预测参数组 - 优化布局"""
         group = QGroupBox("⚙️ 预测参数")
         layout = QFormLayout(group)
+        layout.setSpacing(4)  # 减少行间距
+        layout.setContentsMargins(8, 8, 8, 8)  # 优化边距
 
         # 置信度阈值
         self.confidence_slider = QSlider(Qt.Horizontal)
@@ -741,9 +1001,11 @@ class AIAssistantPanel(QWidget):
         return group
 
     def create_prediction_control_group(self) -> QGroupBox:
-        """创建预测控制组"""
+        """创建预测控制组 - 优化布局"""
         group = QGroupBox("🎯 预测控制")
         layout = QVBoxLayout(group)
+        layout.setSpacing(6)  # 减少间距
+        layout.setContentsMargins(8, 8, 8, 8)  # 优化边距
 
         # 智能预测复选框
         self.smart_predict_checkbox = QCheckBox("🤖 智能预测未标注图片")
@@ -765,13 +1027,13 @@ class AIAssistantPanel(QWidget):
         # 单图预测按钮
         self.predict_current_btn = QPushButton("🖼️ 预测当前图像")
         self.predict_current_btn.setObjectName("predictCurrentButton")
-        self.predict_current_btn.setMinimumHeight(36)
+        self.predict_current_btn.setMinimumHeight(32)  # 减少高度
         layout.addWidget(self.predict_current_btn)
 
         # 批量预测按钮
         self.predict_batch_btn = QPushButton("📁 批量预测")
         self.predict_batch_btn.setObjectName("predictBatchButton")
-        self.predict_batch_btn.setMinimumHeight(36)
+        self.predict_batch_btn.setMinimumHeight(32)  # 减少高度
         layout.addWidget(self.predict_batch_btn)
 
         # 取消按钮
@@ -1309,6 +1571,10 @@ class AIAssistantPanel(QWidget):
                     "color: #7f8c8d; font-size: 11px;")
                 self.model_classes_data = {}
 
+            # 更新可折叠组件的标题
+            if hasattr(self, 'classes_group') and self.classes_group.collapsed:
+                self.classes_group.update_title_for_collapsed_state()
+
         except Exception as e:
             logger.error(f"更新模型类别信息失败: {str(e)}")
 
@@ -1336,6 +1602,10 @@ class AIAssistantPanel(QWidget):
                 self.user_classes_count.setStyleSheet(
                     "color: #7f8c8d; font-size: 11px;")
                 self.user_classes_data = []
+
+            # 更新可折叠组件的标题
+            if hasattr(self, 'classes_group') and self.classes_group.collapsed:
+                self.classes_group.update_title_for_collapsed_state()
 
         except Exception as e:
             logger.error(f"更新用户类别信息失败: {str(e)}")
