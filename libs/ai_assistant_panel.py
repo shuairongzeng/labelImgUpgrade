@@ -1059,15 +1059,15 @@ class AIAssistantPanel(QWidget):
         self.results_list.setMaximumHeight(120)
         layout.addWidget(self.results_list)
 
-        # 结果操作按钮
+        # 结果操作按钮   
         results_btn_layout = QHBoxLayout()
 
-        self.apply_btn = QPushButton("✅ 应用结果")
+        self.apply_btn = QPushButton("✅ 应用")
         self.apply_btn.setObjectName("applyButton")
         self.apply_btn.setEnabled(False)
         results_btn_layout.addWidget(self.apply_btn)
 
-        self.clear_btn = QPushButton("🗑️ 清除结果")
+        self.clear_btn = QPushButton("🗑️ 清除")
         self.clear_btn.setObjectName("clearButton")
         self.clear_btn.setEnabled(False)
         results_btn_layout.addWidget(self.clear_btn)
