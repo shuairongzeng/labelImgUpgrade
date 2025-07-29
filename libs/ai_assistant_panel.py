@@ -8,6 +8,7 @@ AI助手界面面板
 
 import os
 import logging
+from datetime import datetime
 from typing import Optional, List, Dict
 
 try:
@@ -21,6 +22,7 @@ except ImportError:
 
 from .ai_assistant import YOLOPredictor, ModelManager, BatchProcessor, ConfidenceFilter
 from .ai_assistant.yolo_trainer import YOLOTrainer, TrainingConfig
+from .training_history_manager import TrainingHistoryManager
 
 # 设置日志
 logger = logging.getLogger(__name__)
@@ -534,6 +536,7 @@ class AIAssistantPanel(QWidget):
         self.batch_processor = None
         self.confidence_filter = None
         self.trainer = None
+        self.training_history_manager = None
 
         # 界面状态
         self.current_predictions = []
@@ -1059,7 +1062,7 @@ class AIAssistantPanel(QWidget):
         self.results_list.setMaximumHeight(120)
         layout.addWidget(self.results_list)
 
-        # 结果操作按钮   
+        # 结果操作按钮
         results_btn_layout = QHBoxLayout()
 
         self.apply_btn = QPushButton("✅ 应用")
@@ -1374,6 +1377,7 @@ class AIAssistantPanel(QWidget):
             self.batch_processor = BatchProcessor(self.predictor)
             self.confidence_filter = ConfidenceFilter()
             self.trainer = YOLOTrainer()
+            self.training_history_manager = TrainingHistoryManager()
 
             # 连接AI组件信号
             self.model_manager.models_updated.connect(self.update_model_list)
@@ -1411,6 +1415,47 @@ class AIAssistantPanel(QWidget):
             error_msg = f"AI组件初始化失败: {str(e)}"
             logger.error(error_msg)
             self.update_status(error_msg, is_error=True)
+
+    def is_image_trained(self, image_path: str, strict_mode: bool = False) -> bool:
+        """
+        检查图片是否已经被训练过
+
+        Args:
+            image_path: 图片路径
+            strict_mode: 严格模式，只进行完全路径匹配
+
+        Returns:
+            bool: True表示已训练，False表示未训练
+        """
+        try:
+            if not self.training_history_manager:
+                return False
+
+            return self.training_history_manager.is_image_trained(image_path, strict_mode)
+
+        except Exception as e:
+            logger.error(f"检查图片训练状态失败: {str(e)}")
+            return False
+
+    def filter_untrained_images(self, image_paths: List[str]) -> List[str]:
+        """
+        过滤出未训练过的图片
+
+        Args:
+            image_paths: 图片路径列表
+
+        Returns:
+            List[str]: 未训练过的图片路径列表
+        """
+        try:
+            if not self.training_history_manager:
+                return image_paths
+
+            return self.training_history_manager.filter_untrained_images(image_paths)
+
+        except Exception as e:
+            logger.error(f"过滤未训练图片失败: {str(e)}")
+            return image_paths
 
     def refresh_models(self):
         """刷新模型列表"""
@@ -4133,6 +4178,29 @@ class AIAssistantPanel(QWidget):
             data_options_layout.addRow(
                 "备份现有数据:", self.backup_existing_checkbox)
 
+            # 不包含已训练的图片选项
+            self.exclude_trained_checkbox = QCheckBox()
+            self.exclude_trained_checkbox.setChecked(True)  # 默认排除已训练图片
+            self.exclude_trained_checkbox.setToolTip(
+                "排除已经训练过的图片，避免重复训练。\n"
+                "系统会根据训练历史记录自动过滤已训练的图片。\n"
+                "建议勾选此选项以提高训练效率。"
+            )
+            data_options_layout.addRow(
+                "不包含已训练的图片:", self.exclude_trained_checkbox)
+
+            # 严格匹配模式选项
+            self.strict_matching_checkbox = QCheckBox()
+            self.strict_matching_checkbox.setChecked(False)  # 默认不使用严格模式
+            self.strict_matching_checkbox.setToolTip(
+                "严格匹配模式：只根据完整路径判断图片是否已训练。\n"
+                "不勾选：同时使用路径和文件名匹配（推荐）\n"
+                "勾选：只使用完整路径匹配（避免误判）\n"
+                "如果发现不同目录的同名文件被误判，可勾选此选项。"
+            )
+            data_options_layout.addRow(
+                "严格路径匹配:", self.strict_matching_checkbox)
+
             # 显示现有数据信息
             self.existing_data_info_label = QLabel("点击'检查数据'查看现有文件信息")
             self.existing_data_info_label.setStyleSheet(
@@ -4292,6 +4360,155 @@ class AIAssistantPanel(QWidget):
         except Exception as e:
             logger.error(f"执行自动配置失败: {str(e)}")
 
+    def _create_filtered_source_dir(self, source_dir: str, dialog) -> str:
+        """
+        创建过滤后的源目录，只包含未训练过的图片和标注文件
+
+        Args:
+            source_dir: 原始源目录
+            dialog: 对话框对象，用于显示日志
+
+        Returns:
+            str: 过滤后的临时目录路径
+        """
+        try:
+            import tempfile
+            import shutil
+            from PyQt5.QtWidgets import QApplication
+
+            # 获取严格匹配模式设置
+            strict_mode = self.strict_matching_checkbox.isChecked() if hasattr(
+                self, 'strict_matching_checkbox') else False
+            if strict_mode:
+                self._safe_append_auto_log("🔒 使用严格路径匹配模式")
+            else:
+                self._safe_append_auto_log("🔍 使用智能匹配模式（路径+文件名）")
+
+            # 创建临时目录
+            temp_dir = tempfile.mkdtemp(prefix="labelimg_filtered_")
+            self._safe_append_auto_log(f"📁 创建临时目录: {temp_dir}")
+            QApplication.processEvents()  # 更新UI
+
+            # 扫描源目录中的图片和标注文件
+            self._safe_append_auto_log("🔍 正在扫描图片和标注文件...")
+            QApplication.processEvents()  # 更新UI
+
+            image_extensions = ['.jpg', '.jpeg',
+                                '.png', '.bmp', '.tiff', '.tif']
+            xml_files = []
+
+            # 获取所有文件列表
+            all_files = os.listdir(source_dir)
+            xml_file_list = [
+                f for f in all_files if f.lower().endswith('.xml')]
+
+            self._safe_append_auto_log(f"📄 找到 {len(xml_file_list)} 个XML标注文件")
+            QApplication.processEvents()  # 更新UI
+
+            # 检查每个XML文件对应的图片
+            update_interval = max(1, len(xml_file_list) // 20)  # 最多更新20次
+            for i, file in enumerate(xml_file_list):
+                # 动态调整更新频率，避免过于频繁的UI更新
+                if i % update_interval == 0 or i == len(xml_file_list) - 1:
+                    progress = int((i + 1) * 100 / len(xml_file_list))
+                    self._safe_append_auto_log(
+                        f"📊 扫描进度: {i+1}/{len(xml_file_list)} ({progress}%)")
+                    QApplication.processEvents()  # 更新UI
+
+                # 检查是否有对应的图片文件
+                base_name = os.path.splitext(file)[0]
+                image_file = None
+
+                for ext in image_extensions:
+                    potential_image = os.path.join(source_dir, base_name + ext)
+                    if os.path.exists(potential_image):
+                        image_file = base_name + ext
+                        break
+
+                if image_file:
+                    xml_files.append((file, image_file))
+
+            self._safe_append_auto_log(f"📊 找到 {len(xml_files)} 对有效的图片-标注文件")
+            QApplication.processEvents()  # 更新UI
+
+            # 过滤出未训练的图片
+            self._safe_append_auto_log("🔍 正在检查图片训练状态...")
+            QApplication.processEvents()  # 更新UI
+
+            untrained_files = []
+            trained_count = 0
+
+            check_update_interval = max(1, len(xml_files) // 10)  # 最多更新10次
+            for i, (xml_file, image_file) in enumerate(xml_files):
+                # 动态调整更新频率
+                if i % check_update_interval == 0 or i == len(xml_files) - 1:
+                    progress = int((i + 1) * 100 / len(xml_files))
+                    self._safe_append_auto_log(
+                        f"🔍 检查进度: {i+1}/{len(xml_files)} ({progress}%)")
+                    QApplication.processEvents()  # 更新UI
+
+                image_path = os.path.join(source_dir, image_file)
+
+                if not self.is_image_trained(image_path, strict_mode):
+                    untrained_files.append((xml_file, image_file))
+                else:
+                    trained_count += 1
+
+            self._safe_append_auto_log(f"🚫 排除已训练图片: {trained_count} 张")
+            self._safe_append_auto_log(f"✅ 保留未训练图片: {len(untrained_files)} 张")
+            QApplication.processEvents()  # 更新UI
+
+            if len(untrained_files) == 0:
+                self._safe_append_auto_log("⚠️ 没有未训练的图片，将使用所有图片")
+                QApplication.processEvents()  # 更新UI
+                return source_dir
+
+            # 复制未训练的文件到临时目录
+            self._safe_append_auto_log("📋 正在复制未训练的文件...")
+            QApplication.processEvents()  # 更新UI
+
+            copy_update_interval = max(
+                1, len(untrained_files) // 10)  # 最多更新10次
+            for i, (xml_file, image_file) in enumerate(untrained_files):
+                # 动态调整更新频率
+                if i % copy_update_interval == 0 or i == len(untrained_files) - 1:
+                    progress = int((i + 1) * 100 / len(untrained_files))
+                    self._safe_append_auto_log(
+                        f"📋 复制进度: {i+1}/{len(untrained_files)} ({progress}%)")
+                    QApplication.processEvents()  # 更新UI
+
+                try:
+                    # 复制XML文件
+                    src_xml = os.path.join(source_dir, xml_file)
+                    dst_xml = os.path.join(temp_dir, xml_file)
+                    shutil.copy2(src_xml, dst_xml)
+
+                    # 复制图片文件
+                    src_image = os.path.join(source_dir, image_file)
+                    dst_image = os.path.join(temp_dir, image_file)
+                    shutil.copy2(src_image, dst_image)
+                except Exception as copy_error:
+                    self._safe_append_auto_log(
+                        f"⚠️ 复制文件失败: {xml_file}, {image_file} - {copy_error}")
+                    # 继续处理其他文件，不中断整个过程
+
+            self._safe_append_auto_log(
+                f"📋 已复制 {len(untrained_files)} 对文件到临时目录")
+            QApplication.processEvents()  # 更新UI
+
+            # 记录临时目录，以便后续清理
+            if not hasattr(self, '_temp_dirs'):
+                self._temp_dirs = []
+            self._temp_dirs.append(temp_dir)
+
+            return temp_dir
+
+        except Exception as e:
+            error_msg = f"创建过滤目录失败: {str(e)}"
+            logger.error(error_msg)
+            self._safe_append_auto_log(f"❌ {error_msg}")
+            return source_dir  # 出错时返回原目录
+
     def call_yolo_export_and_configure(self, dialog):
         """调用YOLO导出功能并配置训练路径"""
         try:
@@ -4341,6 +4558,20 @@ class AIAssistantPanel(QWidget):
                 os.makedirs(target_dir)
                 self._safe_append_auto_log(f"📁 创建输出目录: {target_dir}")
 
+            # 检查是否需要排除已训练的图片
+            exclude_trained = self.exclude_trained_checkbox.isChecked(
+            ) if hasattr(self, 'exclude_trained_checkbox') else False
+
+            if exclude_trained:
+                self._safe_append_auto_log("🚫 将排除已训练的图片")
+
+            # 准备源目录（如果需要过滤，先创建过滤后的目录）
+            filtered_source_dir = source_dir
+            if exclude_trained and self.training_history_manager:
+                self._safe_append_auto_log("🔍 正在检查已训练的图片...")
+                filtered_source_dir = self._create_filtered_source_dir(
+                    source_dir, dialog)
+
             # 导入并使用YOLO转换器
             try:
                 from libs.pascal_to_yolo_converter import PascalToYOLOConverter
@@ -4356,7 +4587,7 @@ class AIAssistantPanel(QWidget):
 
                 # 创建转换器 - 使用固定类别配置
                 converter = PascalToYOLOConverter(
-                    source_dir=source_dir,
+                    source_dir=filtered_source_dir,  # 使用过滤后的源目录
                     target_dir=target_dir,
                     dataset_name=dataset_name,
                     train_ratio=train_ratio,
@@ -4414,6 +4645,9 @@ class AIAssistantPanel(QWidget):
                     self._safe_append_auto_log("🔍 扫描生成的数据集...")
                     self.scan_generated_dataset(dataset_path)
 
+                    # 记录导出的图片列表，用于后续训练历史记录
+                    self._record_exported_images(data_yaml_path)
+
                     self._safe_append_auto_log("🎉 一键配置完成!")
 
                     # 显示成功消息
@@ -4443,10 +4677,23 @@ class AIAssistantPanel(QWidget):
 
         except Exception as e:
             logger.error(f"调用YOLO导出功能失败: {str(e)}")
-            self._safe_append_auto_log(f"❌ 配置失败: {str(e)}")
-            QMessageBox.critical(dialog, "配置失败", f"自动配置过程出错:\n\n{str(e)}")
-            if hasattr(self, 'start_config_btn'):
-                self.start_config_btn.setEnabled(True)
+
+    def _record_exported_images(self, data_yaml_path: str):
+        """
+        记录导出的图片列表，用于后续训练历史记录
+
+        Args:
+            data_yaml_path: 数据集配置文件路径
+        """
+        try:
+            image_files = self._extract_images_from_dataset_config(
+                data_yaml_path)
+            self._last_export_images = image_files
+            self._safe_append_auto_log(f"📝 记录了 {len(image_files)} 张导出图片")
+
+        except Exception as e:
+            logger.error(f"记录导出图片列表失败: {str(e)}")
+            self._last_export_images = []
 
     def show_class_config_dialog(self):
         """显示类别配置对话框"""
@@ -6923,6 +7170,9 @@ pip install torch torchvision torchaudio
             # 复制模型到 models 文件夹
             copied_model_path = self._copy_model_to_models_folder(model_path)
 
+            # 更新训练历史记录
+            self._update_training_history(model_path, copied_model_path)
+
             # 更新训练状态
             if hasattr(self, 'training_status_label') and self.training_status_label is not None:
                 try:
@@ -6987,6 +7237,108 @@ pip install torch torchvision torchaudio
 
         except Exception as e:
             logger.error(f"训练完成回调失败: {str(e)}")
+
+    def _update_training_history(self, model_path: str, copied_model_path: str = None):
+        """
+        更新训练历史记录
+
+        Args:
+            model_path: 训练生成的模型路径
+            copied_model_path: 复制到models文件夹的模型路径
+        """
+        try:
+            if not self.training_history_manager:
+                logger.warning("训练历史管理器未初始化，跳过历史记录更新")
+                return
+
+            # 获取训练使用的数据集信息
+            dataset_path = None
+            image_files = []
+            training_config = {}
+
+            # 尝试从训练器获取配置信息
+            if hasattr(self, 'trainer') and self.trainer and hasattr(self.trainer, 'config'):
+                config = self.trainer.config
+                if config:
+                    dataset_path = getattr(config, 'dataset_config', None)
+                    training_config = {
+                        'epochs': getattr(config, 'epochs', None),
+                        'batch_size': getattr(config, 'batch_size', None),
+                        'learning_rate': getattr(config, 'learning_rate', None),
+                        'model_type': getattr(config, 'model_type', None),
+                        'device': getattr(config, 'device', None)
+                    }
+
+            # 如果有数据集配置文件，尝试解析获取图片列表
+            if dataset_path and os.path.exists(dataset_path):
+                image_files = self._extract_images_from_dataset_config(
+                    dataset_path)
+
+            # 如果无法从配置获取，尝试从最近的导出记录获取
+            if not image_files and hasattr(self, '_last_export_images'):
+                image_files = self._last_export_images
+
+            # 生成训练会话名称
+            session_name = f"YOLO训练_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+            # 添加训练会话记录
+            session_id = self.training_history_manager.add_training_session(
+                session_name=session_name,
+                dataset_path=dataset_path or "Unknown",
+                image_files=image_files,
+                model_path=copied_model_path or model_path,
+                training_config=training_config
+            )
+
+            if session_id:
+                self._safe_append_log(f"📝 训练历史记录已更新: {session_id}")
+                self._safe_append_log(f"📊 记录了 {len(image_files)} 张训练图片")
+            else:
+                self._safe_append_log("⚠️ 训练历史记录更新失败")
+
+        except Exception as e:
+            logger.error(f"更新训练历史记录失败: {str(e)}")
+            self._safe_append_log(f"⚠️ 训练历史记录更新失败: {str(e)}")
+
+    def _extract_images_from_dataset_config(self, dataset_config_path: str) -> List[str]:
+        """
+        从数据集配置文件中提取图片列表
+
+        Args:
+            dataset_config_path: 数据集配置文件路径
+
+        Returns:
+            List[str]: 图片文件路径列表
+        """
+        try:
+            import yaml
+            from pathlib import Path
+
+            with open(dataset_config_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+
+            image_files = []
+            dataset_base = Path(dataset_config_path).parent
+
+            # 获取训练和验证图片目录
+            train_path = dataset_base / config.get('train', 'images/train')
+            val_path = dataset_base / config.get('val', 'images/val')
+
+            # 扫描图片文件
+            image_extensions = ['.jpg', '.jpeg',
+                                '.png', '.bmp', '.tiff', '.tif']
+
+            for img_dir in [train_path, val_path]:
+                if img_dir.exists():
+                    for ext in image_extensions:
+                        for img_file in img_dir.glob(f"*{ext}"):
+                            image_files.append(str(img_file))
+
+            return image_files
+
+        except Exception as e:
+            logger.error(f"从数据集配置提取图片列表失败: {str(e)}")
+            return []
 
     def _copy_model_to_models_folder(self, model_path):
         """将训练好的模型复制到 models 文件夹"""
