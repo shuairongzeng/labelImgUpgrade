@@ -91,7 +91,9 @@ def test_trainer_cuda_fallback():
             epochs=1,
             batch_size=1,
             learning_rate=0.01,
-            model_size="yolov8n",
+            model_type="pretrained",
+            model_path="yolov8n.pt",
+            model_name="yolov8n",
             device="cuda",  # 故意设置为 CUDA
             output_dir=tempfile.mkdtemp()
         )

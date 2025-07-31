@@ -1,6 +1,6 @@
 version: '1.0'
 created_at: '2025-01-19T10:30:00'
-updated_at: '2025-07-28T19:29:36.148114'
+updated_at: '2025-07-31T22:09:15.001880'
 description: 从使用当前标注类别更新的类别配置 - 确保YOLO训练时类别顺序一致
 classes:
 - naiMa
@@ -14,49 +14,49 @@ classes:
 class_metadata:
   naiMa:
     description: 从使用当前标注类别导入的类别
-    added_at: '2025-07-28T19:29:36.148093'
+    added_at: '2025-07-31T22:09:15.001880'
     usage_count: 0
     original_id: 0
     source: 使用当前标注类别
   lingZhu:
     description: 从使用当前标注类别导入的类别
-    added_at: '2025-07-28T19:29:36.148097'
+    added_at: '2025-07-31T22:09:15.001880'
     usage_count: 0
     original_id: 1
     source: 使用当前标注类别
   guaiWu:
     description: 从使用当前标注类别导入的类别
-    added_at: '2025-07-28T19:29:36.148100'
+    added_at: '2025-07-31T22:09:15.001880'
     usage_count: 0
     original_id: 2
     source: 使用当前标注类别
   naiBa:
     description: 从使用当前标注类别导入的类别
-    added_at: '2025-07-28T19:29:36.148102'
+    added_at: '2025-07-31T22:09:15.001880'
     usage_count: 0
     original_id: 3
     source: 使用当前标注类别
   xiuLuo:
     description: 从使用当前标注类别导入的类别
-    added_at: '2025-07-28T19:29:36.148104'
+    added_at: '2025-07-31T22:09:15.001880'
     usage_count: 0
     original_id: 4
     source: 使用当前标注类别
   xiuLiShang:
     description: 从使用当前标注类别导入的类别
-    added_at: '2025-07-28T19:29:36.148106'
+    added_at: '2025-07-31T22:09:15.001880'
     usage_count: 0
     original_id: 5
     source: 使用当前标注类别
   lingQu:
     description: 从使用当前标注类别导入的类别
-    added_at: '2025-07-28T19:29:36.148108'
+    added_at: '2025-07-31T22:09:15.001880'
     usage_count: 0
     original_id: 6
     source: 使用当前标注类别
   door:
     description: 从使用当前标注类别导入的类别
-    added_at: '2025-07-28T19:29:36.148110'
+    added_at: '2025-07-31T22:09:15.001880'
     usage_count: 0
     original_id: 7
     source: 使用当前标注类别

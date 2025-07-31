@@ -1,0 +1,670 @@
+{
+  "analysis_date": "2025-01-31",
+  "summary": {
+    "main_shortcuts_count": 42,
+    "manager_shortcuts_count": 35,
+    "total_unique_shortcuts": 64,
+    "conflicts_count": 13
+  },
+  "main_shortcuts": {
+    "Ctrl+Q": {
+      "action": "quit",
+      "line": 801,
+      "description": "退出程序"
+    },
+    "Ctrl+O": {
+      "action": "open",
+      "line": 804,
+      "description": "打开文件"
+    },
+    "Ctrl+u": {
+      "action": "open_dir",
+      "line": 807,
+      "description": "打开目录"
+    },
+    "Ctrl+r": {
+      "action": "change_save_dir",
+      "line": 810,
+      "description": "更改保存目录"
+    },
+    "Ctrl+Shift+O": {
+      "action": "open_annotation",
+      "line": 813,
+      "description": "打开标注文件"
+    },
+    "Ctrl+v": {
+      "action": "copy_prev_bounding",
+      "line": 815,
+      "description": "复制上一个边界框"
+    },
+    "Ctrl+Shift+E": {
+      "action": "export_yolo",
+      "line": 818,
+      "description": "导出YOLO格式"
+    },
+    "Ctrl+Shift+M": {
+      "action": "export_model",
+      "line": 821,
+      "description": "导出模型"
+    },
+    "Ctrl+S": {
+      "action": "save",
+      "line": 833,
+      "description": "保存"
+    },
+    "Ctrl+Y": {
+      "action": "save_format",
+      "line": 847,
+      "description": "更改保存格式"
+    },
+    "Ctrl+Shift+S": {
+      "action": "save_as",
+      "line": 852,
+      "description": "另存为"
+    },
+    "Ctrl+W": {
+      "action": "close",
+      "line": 855,
+      "description": "关闭当前文件"
+    },
+    "Ctrl+Shift+D": {
+      "action": "delete_image",
+      "line": 858,
+      "description": "删除图像"
+    },
+    "d": {
+      "action": "open_next_image",
+      "line": 824,
+      "description": "下一张图像"
+    },
+    "a": {
+      "action": "open_prev_image",
+      "line": 827,
+      "description": "上一张图像"
+    },
+    "space": {
+      "action": "verify",
+      "line": 830,
+      "description": "验证图像"
+    },
+    "Ctrl+L": {
+      "action": "color1",
+      "line": 872,
+      "description": "选择边框颜色"
+    },
+    "w": {
+      "action": "create_mode",
+      "line": 875,
+      "description": "创建模式"
+    },
+    "Ctrl+J": {
+      "action": "edit_mode",
+      "line": 877,
+      "description": "编辑模式"
+    },
+    "Delete": {
+      "action": "delete",
+      "line": 882,
+      "description": "删除选中形状"
+    },
+    "Ctrl+D": {
+      "action": "copy",
+      "line": 884,
+      "description": "复制选中形状"
+    },
+    "Ctrl+Shift+A": {
+      "action": "advanced_mode",
+      "line": 888,
+      "description": "高级模式"
+    },
+    "Ctrl+H": {
+      "action": "hide_all",
+      "line": 893,
+      "description": "隐藏所有框"
+    },
+    "Ctrl+A": {
+      "action": "show_all",
+      "line": 896,
+      "description": "显示所有框"
+    },
+    "Ctrl+E": {
+      "action": "edit",
+      "line": 959,
+      "description": "编辑标签"
+    },
+    "Ctrl++": {
+      "action": "zoom_in",
+      "line": 915,
+      "description": "放大"
+    },
+    "Ctrl+-": {
+      "action": "zoom_out",
+      "line": 917,
+      "description": "缩小"
+    },
+    "Ctrl+=": {
+      "action": "zoom_org",
+      "line": 919,
+      "description": "原始大小"
+    },
+    "Ctrl+F": {
+      "action": "fit_window",
+      "line": 921,
+      "description": "适应窗口"
+    },
+    "Ctrl+Shift+F": {
+      "action": "fit_width",
+      "line": 924,
+      "description": "适应宽度"
+    },
+    "Ctrl+Shift++": {
+      "action": "light_brighten",
+      "line": 947,
+      "description": "增加亮度"
+    },
+    "Ctrl+Shift+-": {
+      "action": "light_darken",
+      "line": 949,
+      "description": "降低亮度"
+    },
+    "Ctrl+Shift+=": {
+      "action": "light_org",
+      "line": 951,
+      "description": "重置亮度"
+    },
+    "Ctrl+Shift+T": {
+      "action": "labels_toggle",
+      "line": 972,
+      "description": "切换标签面板"
+    },
+    "Ctrl+Shift+R": {
+      "action": "draw_squares_option",
+      "line": 991,
+      "description": "绘制正方形"
+    },
+    "Ctrl+P": {
+      "action": "ai_predict_current",
+      "line": 1001,
+      "description": "AI预测当前图像"
+    },
+    "Ctrl+Shift+P": {
+      "action": "ai_predict_batch",
+      "line": 1003,
+      "description": "AI批量预测"
+    },
+    "F9": {
+      "action": "ai_toggle_panel",
+      "line": 1005,
+      "description": "切换AI面板"
+    },
+    "Ctrl+B": {
+      "action": "batch_operations",
+      "line": 1009,
+      "description": "批量操作"
+    },
+    "Ctrl+Shift+C": {
+      "action": "batch_copy",
+      "line": 1011,
+      "description": "批量复制"
+    },
+    "Ctrl+K": {
+      "action": "shortcut_config",
+      "line": 1017,
+      "description": "快捷键配置"
+    },
+    "Ctrl+Shift+L": {
+      "action": "display_label_option",
+      "line": 1068,
+      "description": "显示标签选项"
+    }
+  },
+  "manager_shortcuts": {
+    "Ctrl+Plus": {
+      "action": "zoom_in",
+      "line": 86,
+      "description": "放大",
+      "category": "视图操作"
+    },
+    "Ctrl+Minus": {
+      "action": "zoom_out",
+      "line": 87,
+      "description": "缩小",
+      "category": "视图操作"
+    },
+    "Ctrl+0": {
+      "action": "zoom_fit",
+      "line": 88,
+      "description": "适应窗口",
+      "category": "视图操作"
+    },
+    "Ctrl+1": {
+      "action": "zoom_original",
+      "line": 89,
+      "description": "原始大小",
+      "category": "视图操作"
+    },
+    "F11": {
+      "action": "toggle_fullscreen",
+      "line": 90,
+      "description": "全屏切换",
+      "category": "视图操作"
+    },
+    "Ctrl+Shift+T": {
+      "action": "batch_convert",
+      "line": 132,
+      "description": "批量转换",
+      "category": "批量操作"
+    },
+    "Ctrl+Shift+R": {
+      "action": "toggle_draw_square",
+      "line": 93,
+      "description": "切换矩形绘制",
+      "category": "视图操作"
+    },
+    "Ctrl+Shift+M": {
+      "action": "single_class_mode",
+      "line": 95,
+      "description": "单类模式",
+      "category": "视图操作"
+    },
+    "Ctrl+Shift+L": {
+      "action": "color_dialog",
+      "line": 138,
+      "description": "颜色选择",
+      "category": "工具操作"
+    },
+    "Ctrl+Right": {
+      "action": "next_image",
+      "line": 100,
+      "description": "下一张图像",
+      "category": "导航操作"
+    },
+    "Ctrl+Left": {
+      "action": "prev_image",
+      "line": 101,
+      "description": "上一张图像",
+      "category": "导航操作"
+    },
+    "Home": {
+      "action": "first_image",
+      "line": 102,
+      "description": "第一张图像",
+      "category": "导航操作"
+    },
+    "End": {
+      "action": "last_image",
+      "line": 103,
+      "description": "最后一张图像",
+      "category": "导航操作"
+    },
+    "R": {
+      "action": "create_rect",
+      "line": 106,
+      "description": "创建矩形",
+      "category": "标注操作"
+    },
+    "P": {
+      "action": "create_polygon",
+      "line": 107,
+      "description": "创建多边形",
+      "category": "标注操作"
+    },
+    "C": {
+      "action": "create_circle",
+      "line": 108,
+      "description": "创建圆形",
+      "category": "标注操作"
+    },
+    "L": {
+      "action": "create_line",
+      "line": 109,
+      "description": "创建线条",
+      "category": "标注操作"
+    },
+    "E": {
+      "action": "edit_mode",
+      "line": 110,
+      "description": "编辑模式",
+      "category": "标注操作"
+    },
+    "Ctrl+D": {
+      "action": "duplicate_shape",
+      "line": 111,
+      "description": "复制形状",
+      "category": "标注操作"
+    },
+    "Ctrl+P": {
+      "action": "ai_predict_current",
+      "line": 115,
+      "description": "AI预测当前图像",
+      "category": "AI助手"
+    },
+    "Ctrl+Shift+P": {
+      "action": "ai_predict_batch",
+      "line": 117,
+      "description": "AI批量预测",
+      "category": "AI助手"
+    },
+    "F9": {
+      "action": "ai_toggle_panel",
+      "line": 118,
+      "description": "切换AI面板",
+      "category": "AI助手"
+    },
+    "Ctrl+Up": {
+      "action": "ai_increase_confidence",
+      "line": 120,
+      "description": "提高置信度",
+      "category": "AI助手"
+    },
+    "Ctrl+Down": {
+      "action": "ai_decrease_confidence",
+      "line": 122,
+      "description": "降低置信度",
+      "category": "AI助手"
+    },
+    "Ctrl+Enter": {
+      "action": "ai_apply_predictions",
+      "line": 124,
+      "description": "应用预测结果",
+      "category": "AI助手"
+    },
+    "Ctrl+Delete": {
+      "action": "ai_clear_predictions",
+      "line": 126,
+      "description": "清除预测结果",
+      "category": "AI助手"
+    },
+    "Ctrl+B": {
+      "action": "batch_operations",
+      "line": 129,
+      "description": "批量操作",
+      "category": "批量操作"
+    },
+    "Ctrl+Shift+C": {
+      "action": "batch_copy",
+      "line": 130,
+      "description": "批量复制",
+      "category": "批量操作"
+    },
+    "Ctrl+Shift+D": {
+      "action": "batch_delete",
+      "line": 131,
+      "description": "批量删除",
+      "category": "批量操作"
+    },
+    "T": {
+      "action": "toggle_labels",
+      "line": 135,
+      "description": "切换标签显示",
+      "category": "工具操作"
+    },
+    "S": {
+      "action": "toggle_shapes",
+      "line": 136,
+      "description": "切换形状显示",
+      "category": "工具操作"
+    },
+    "G": {
+      "action": "toggle_grid",
+      "line": 137,
+      "description": "切换网格",
+      "category": "工具操作"
+    },
+    "F1": {
+      "action": "show_help",
+      "line": 141,
+      "description": "显示帮助",
+      "category": "帮助操作"
+    },
+    "Ctrl+H": {
+      "action": "show_shortcuts",
+      "line": 142,
+      "description": "显示快捷键",
+      "category": "帮助操作"
+    },
+    "Ctrl+Shift+A": {
+      "action": "about",
+      "line": 143,
+      "description": "关于",
+      "category": "帮助操作"
+    }
+  },
+  "conflicts": [
+    {
+      "shortcut": "Ctrl+Shift+M",
+      "sources": [
+        {
+          "source": "main",
+          "action": "export_model",
+          "line": 821,
+          "description": "导出模型"
+        },
+        {
+          "source": "manager",
+          "action": "single_class_mode",
+          "line": 95,
+          "description": "单类模式",
+          "category": "视图操作"
+        }
+      ]
+    },
+    {
+      "shortcut": "Ctrl+Shift+D",
+      "sources": [
+        {
+          "source": "main",
+          "action": "delete_image",
+          "line": 858,
+          "description": "删除图像"
+        },
+        {
+          "source": "manager",
+          "action": "batch_delete",
+          "line": 131,
+          "description": "批量删除",
+          "category": "批量操作"
+        }
+      ]
+    },
+    {
+      "shortcut": "Ctrl+D",
+      "sources": [
+        {
+          "source": "main",
+          "action": "copy",
+          "line": 884,
+          "description": "复制选中形状"
+        },
+        {
+          "source": "manager",
+          "action": "duplicate_shape",
+          "line": 111,
+          "description": "复制形状",
+          "category": "标注操作"
+        }
+      ]
+    },
+    {
+      "shortcut": "Ctrl+Shift+A",
+      "sources": [
+        {
+          "source": "main",
+          "action": "advanced_mode",
+          "line": 888,
+          "description": "高级模式"
+        },
+        {
+          "source": "manager",
+          "action": "about",
+          "line": 143,
+          "description": "关于",
+          "category": "帮助操作"
+        }
+      ]
+    },
+    {
+      "shortcut": "Ctrl+H",
+      "sources": [
+        {
+          "source": "main",
+          "action": "hide_all",
+          "line": 893,
+          "description": "隐藏所有框"
+        },
+        {
+          "source": "manager",
+          "action": "show_shortcuts",
+          "line": 142,
+          "description": "显示快捷键",
+          "category": "帮助操作"
+        }
+      ]
+    },
+    {
+      "shortcut": "Ctrl+Shift+T",
+      "sources": [
+        {
+          "source": "main",
+          "action": "labels_toggle",
+          "line": 972,
+          "description": "切换标签面板"
+        },
+        {
+          "source": "manager",
+          "action": "batch_convert",
+          "line": 132,
+          "description": "批量转换",
+          "category": "批量操作"
+        }
+      ]
+    },
+    {
+      "shortcut": "Ctrl+Shift+R",
+      "sources": [
+        {
+          "source": "main",
+          "action": "draw_squares_option",
+          "line": 991,
+          "description": "绘制正方形"
+        },
+        {
+          "source": "manager",
+          "action": "toggle_draw_square",
+          "line": 93,
+          "description": "切换矩形绘制",
+          "category": "视图操作"
+        }
+      ]
+    },
+    {
+      "shortcut": "Ctrl+P",
+      "sources": [
+        {
+          "source": "main",
+          "action": "ai_predict_current",
+          "line": 1001,
+          "description": "AI预测当前图像"
+        },
+        {
+          "source": "manager",
+          "action": "ai_predict_current",
+          "line": 115,
+          "description": "AI预测当前图像",
+          "category": "AI助手"
+        }
+      ]
+    },
+    {
+      "shortcut": "Ctrl+Shift+P",
+      "sources": [
+        {
+          "source": "main",
+          "action": "ai_predict_batch",
+          "line": 1003,
+          "description": "AI批量预测"
+        },
+        {
+          "source": "manager",
+          "action": "ai_predict_batch",
+          "line": 117,
+          "description": "AI批量预测",
+          "category": "AI助手"
+        }
+      ]
+    },
+    {
+      "shortcut": "F9",
+      "sources": [
+        {
+          "source": "main",
+          "action": "ai_toggle_panel",
+          "line": 1005,
+          "description": "切换AI面板"
+        },
+        {
+          "source": "manager",
+          "action": "ai_toggle_panel",
+          "line": 118,
+          "description": "切换AI面板",
+          "category": "AI助手"
+        }
+      ]
+    },
+    {
+      "shortcut": "Ctrl+B",
+      "sources": [
+        {
+          "source": "main",
+          "action": "batch_operations",
+          "line": 1009,
+          "description": "批量操作"
+        },
+        {
+          "source": "manager",
+          "action": "batch_operations",
+          "line": 129,
+          "description": "批量操作",
+          "category": "批量操作"
+        }
+      ]
+    },
+    {
+      "shortcut": "Ctrl+Shift+C",
+      "sources": [
+        {
+          "source": "main",
+          "action": "batch_copy",
+          "line": 1011,
+          "description": "批量复制"
+        },
+        {
+          "source": "manager",
+          "action": "batch_copy",
+          "line": 130,
+          "description": "批量复制",
+          "category": "批量操作"
+        }
+      ]
+    },
+    {
+      "shortcut": "Ctrl+Shift+L",
+      "sources": [
+        {
+          "source": "main",
+          "action": "display_label_option",
+          "line": 1068,
+          "description": "显示标签选项"
+        },
+        {
+          "source": "manager",
+          "action": "color_dialog",
+          "line": 138,
+          "description": "颜色选择",
+          "category": "工具操作"
+        }
+      ]
+    }
+  ],
+  "fix_recommendations": []
+}

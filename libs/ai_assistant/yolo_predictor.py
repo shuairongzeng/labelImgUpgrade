@@ -171,14 +171,59 @@ class YOLOPredictor(QObject):
         """检测可用的计算设备"""
         try:
             if torch.cuda.is_available():
-                self.device = "cuda"
-                logger.info(f"检测到CUDA设备: {torch.cuda.get_device_name()}")
+                # 测试CUDA兼容性
+                if self._test_cuda_compatibility():
+                    self.device = "cuda"
+                    logger.info(f"检测到CUDA设备: {torch.cuda.get_device_name()}")
+                else:
+                    self.device = "cpu"
+                    logger.warning("CUDA设备不兼容，回退到CPU模式")
             else:
                 self.device = "cpu"
                 logger.info("使用CPU设备")
         except Exception as e:
             logger.warning(f"设备检测失败: {e}")
             self.device = "cpu"
+
+    def _test_cuda_compatibility(self):
+        """测试CUDA兼容性，特别是torchvision NMS操作"""
+        try:
+            import torch
+            from torchvision.ops import nms
+
+            # 创建测试数据
+            boxes = torch.tensor([[0, 0, 10, 10], [5, 5, 15, 15]], dtype=torch.float32).cuda()
+            scores = torch.tensor([0.9, 0.8], dtype=torch.float32).cuda()
+
+            # 测试NMS操作
+            result = nms(boxes, scores, 0.5)
+
+            # 清理GPU内存
+            del boxes, scores, result
+            torch.cuda.empty_cache()
+
+            logger.debug("CUDA兼容性测试通过")
+            return True
+
+        except Exception as e:
+            logger.warning(f"CUDA兼容性测试失败: {e}")
+            return False
+
+    def force_cpu_mode(self):
+        """强制使用CPU模式"""
+        old_device = self.device
+        self.device = "cpu"
+
+        # 如果模型已加载，需要重新移动到CPU
+        if self.is_loaded and self.model is not None:
+            try:
+                if hasattr(self.model, 'to'):
+                    self.model.to(self.device)
+                logger.info(f"模型已从 {old_device} 切换到 {self.device}")
+            except Exception as e:
+                logger.error(f"切换设备失败: {e}")
+
+        logger.info("已强制切换到CPU模式")
 
     def load_model(self, model_path: str) -> bool:
         """
@@ -285,18 +330,45 @@ class YOLOPredictor(QObject):
             print(
                 f"[DEBUG] YOLO预测器: 模型状态 - 已加载: {self.is_loaded}, 模型名: {self.model_name}")
 
-            # 执行预测
+            # 执行预测（带CUDA回退机制）
             print(f"[DEBUG] YOLO预测器: 调用模型进行预测...")
             start_time = time.time()
-            results = self.model(
-                image_path,
-                conf=conf_threshold,
-                iou=iou_threshold,
-                max_det=max_det,
-                verbose=False
-            )
-            inference_time = time.time() - start_time
-            print(f"[DEBUG] YOLO预测器: 模型预测完成，耗时: {inference_time:.3f}秒")
+
+            try:
+                results = self.model(
+                    image_path,
+                    conf=conf_threshold,
+                    iou=iou_threshold,
+                    max_det=max_det,
+                    verbose=False
+                )
+                inference_time = time.time() - start_time
+                print(f"[DEBUG] YOLO预测器: 模型预测完成，耗时: {inference_time:.3f}秒")
+
+            except RuntimeError as e:
+                if "torchvision::nms" in str(e) and "CUDA" in str(e):
+                    # CUDA NMS错误，尝试回退到CPU
+                    print(f"[WARNING] YOLO预测器: CUDA NMS错误，回退到CPU模式: {e}")
+                    logger.warning(f"CUDA NMS错误，回退到CPU模式: {e}")
+
+                    # 强制切换到CPU模式
+                    self.force_cpu_mode()
+
+                    # 重新尝试预测
+                    print(f"[DEBUG] YOLO预测器: 使用CPU模式重新预测...")
+                    start_time = time.time()
+                    results = self.model(
+                        image_path,
+                        conf=conf_threshold,
+                        iou=iou_threshold,
+                        max_det=max_det,
+                        verbose=False
+                    )
+                    inference_time = time.time() - start_time
+                    print(f"[DEBUG] YOLO预测器: CPU模式预测完成，耗时: {inference_time:.3f}秒")
+                else:
+                    # 其他RuntimeError，直接抛出
+                    raise
 
             # 处理结果
             print(f"[DEBUG] YOLO预测器: 处理预测结果...")
@@ -369,16 +441,41 @@ class YOLOPredictor(QObject):
                 logger.warning("没有有效的图像文件")
                 return {}
 
-            # 批量预测
+            # 批量预测（带CUDA回退机制）
             start_time = time.time()
-            batch_results = self.model(
-                valid_paths,
-                conf=conf_threshold,
-                iou=iou_threshold,
-                max_det=max_det,
-                verbose=False
-            )
-            total_time = time.time() - start_time
+
+            try:
+                batch_results = self.model(
+                    valid_paths,
+                    conf=conf_threshold,
+                    iou=iou_threshold,
+                    max_det=max_det,
+                    verbose=False
+                )
+                total_time = time.time() - start_time
+
+            except RuntimeError as e:
+                if "torchvision::nms" in str(e) and "CUDA" in str(e):
+                    # CUDA NMS错误，尝试回退到CPU
+                    logger.warning(f"批量预测CUDA NMS错误，回退到CPU模式: {e}")
+
+                    # 强制切换到CPU模式
+                    self.force_cpu_mode()
+
+                    # 重新尝试批量预测
+                    start_time = time.time()
+                    batch_results = self.model(
+                        valid_paths,
+                        conf=conf_threshold,
+                        iou=iou_threshold,
+                        max_det=max_det,
+                        verbose=False
+                    )
+                    total_time = time.time() - start_time
+                    logger.info("CPU模式批量预测完成")
+                else:
+                    # 其他RuntimeError，直接抛出
+                    raise
 
             # 处理每个结果
             for i, (image_path, result) in enumerate(zip(valid_paths, batch_results)):

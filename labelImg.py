@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 from libs.utils import *
 from libs.yolo_export_dialog import YOLOExportDialog
+from libs.model_export_dialog import ModelExportDialog
 from libs.pinyin_utils import process_label_text, has_chinese
 from libs.hashableQListWidgetItem import HashableQListWidgetItem
 from libs.ustr import ustr
@@ -816,6 +817,9 @@ class MainWindow(QMainWindow, WindowMixin):
         export_yolo = action(get_str('exportYOLO'), self.export_yolo_dataset,
                              'Ctrl+Shift+E', 'export', get_str('exportYOLODetail'))
 
+        export_model = action(get_str('exportModel'), self.export_model,
+                             'Ctrl+Shift+M', 'export', get_str('exportModelDetail'))
+
         open_next_image = action(get_str('nextImg'), self.open_next_image,
                                  'd', 'next', get_str('nextImgDetail'))
 
@@ -993,18 +997,19 @@ class MainWindow(QMainWindow, WindowMixin):
         # ==================== 新功能动作 ====================
 
         # AI助手相关动作
+        # AI功能动作 - 快捷键由shortcut_manager.py管理，避免冲突
         ai_predict_current = action('🤖 AI预测当前图像', self.on_ai_predict_current,
-                                    'Ctrl+P', 'ai_predict', 'AI预测当前图像')
+                                    None, 'ai_predict', 'AI预测当前图像')
         ai_predict_batch = action('🔄 AI批量预测', self.on_ai_batch_predict,
-                                  'Ctrl+Shift+P', 'ai_batch', 'AI批量预测')
+                                  None, 'ai_batch', 'AI批量预测')
         ai_toggle_panel = action('🔧 切换AI面板', self.on_ai_toggle_panel,
-                                 'F9', 'ai_panel', '显示/隐藏AI助手面板')
+                                 None, 'ai_panel', '显示/隐藏AI助手面板')
 
-        # 批量操作相关动作
+        # 批量操作相关动作 - 快捷键由shortcut_manager.py管理，避免冲突
         batch_operations = action('📦 批量操作', self.show_batch_operations_dialog,
-                                  'Ctrl+B', 'batch_ops', '批量操作对话框')
+                                  None, 'batch_ops', '批量操作对话框')
         batch_copy = action('📋 批量复制', self.on_batch_copy,
-                            'Ctrl+Shift+C', 'batch_copy', '批量复制标注')
+                            None, 'batch_copy', '批量复制标注')
         batch_delete = action('🗑️ 批量删除', self.on_batch_delete,
                               'Ctrl+Shift+D', 'batch_delete', '批量删除标注')
 
@@ -1069,7 +1074,7 @@ class MainWindow(QMainWindow, WindowMixin):
             self.toggle_paint_labels_option)
 
         add_actions(self.menus.file,
-                    (open, open_dir, change_save_dir, open_annotation, copy_prev_bounding, self.menus.recentFiles, save, save_format, save_as, None, export_yolo, None, close, reset_all, delete_image, quit))
+                    (open, open_dir, change_save_dir, open_annotation, copy_prev_bounding, self.menus.recentFiles, save, save_format, save_as, None, export_yolo, export_model, None, close, reset_all, delete_image, quit))
         add_actions(self.menus.help, (help_default, show_info, show_shortcut))
         add_actions(self.menus.view, (
             self.auto_saving,
@@ -2719,7 +2724,10 @@ class MainWindow(QMainWindow, WindowMixin):
             QTimer.singleShot(50, delayed_scale_adjustment)  # 50ms延迟
             self.add_recent_file(self.file_path)
             self.toggle_actions(True)
-            self.show_bounding_box_from_annotation_file(self.file_path)
+            # 只有当加载的是图片文件（而不是标注文件）时，才查找对应的标注文件
+            # 这避免了重复加载同一个标注文件的问题
+            if not self.label_file:
+                self.show_bounding_box_from_annotation_file(self.file_path)
 
             # 更新按钮状态
             self.update_switch_button_state()
@@ -3253,10 +3261,8 @@ class MainWindow(QMainWindow, WindowMixin):
             self.statusBar().show()
 
         self.import_dir_images(target_dir_path)
-        # 只有当file_path不为None时才调用
-        if self.file_path is not None:
-            self.show_bounding_box_from_annotation_file(
-                file_path=self.file_path)
+        # 移除重复调用show_bounding_box_from_annotation_file
+        # 因为在load_file中已经调用过了
 
     def import_dir_images(self, dir_path):
         if not self.may_continue() or not dir_path:
@@ -4065,6 +4071,12 @@ class MainWindow(QMainWindow, WindowMixin):
 
         # 打开导出对话框
         dialog = YOLOExportDialog(self, self.last_open_dir)
+        dialog.exec_()
+
+    def export_model(self):
+        """导出模型为其他格式"""
+        # 打开模型导出对话框
+        dialog = ModelExportDialog(self)
         dialog.exec_()
 
     def toggle_paint_labels_option(self):

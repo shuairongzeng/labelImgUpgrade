@@ -1001,6 +1001,14 @@ class AIAssistantPanel(QWidget):
         self.max_det_spin.setValue(100)
         layout.addRow("最大检测数:", self.max_det_spin)
 
+        # 强制CPU模式
+        self.force_cpu_checkbox = QCheckBox("强制使用CPU模式")
+        self.force_cpu_checkbox.setToolTip(
+            "强制使用CPU进行预测，避免CUDA兼容性问题\n"
+            "如果遇到GPU相关错误，建议开启此选项"
+        )
+        layout.addRow("设备设置:", self.force_cpu_checkbox)
+
         return group
 
     def create_prediction_control_group(self) -> QGroupBox:
@@ -1107,6 +1115,7 @@ class AIAssistantPanel(QWidget):
         self.confidence_slider.valueChanged.connect(
             self.update_confidence_label)
         self.nms_slider.valueChanged.connect(self.update_nms_label)
+        self.force_cpu_checkbox.stateChanged.connect(self.on_force_cpu_changed)
 
         # 模型选择连接
         self.model_combo.currentTextChanged.connect(self.on_model_changed)
@@ -6303,6 +6312,27 @@ pip install torch torchvision torchaudio
         """更新NMS标签"""
         nms = value / 100.0
         self.nms_label.setText(f"{nms:.2f}")
+
+    def on_force_cpu_changed(self, state):
+        """处理强制CPU模式变化"""
+        try:
+            force_cpu = state == Qt.Checked
+
+            if self.predictor and hasattr(self.predictor, 'force_cpu_mode'):
+                if force_cpu:
+                    self.predictor.force_cpu_mode()
+                    self.update_status("已切换到CPU模式")
+                    logger.info("用户强制切换到CPU模式")
+                else:
+                    # 重新检测设备
+                    self.predictor._detect_device()
+                    device = getattr(self.predictor, 'device', 'unknown')
+                    self.update_status(f"已切换到{device.upper()}模式")
+                    logger.info(f"设备模式已更新为: {device}")
+
+        except Exception as e:
+            logger.error(f"切换设备模式失败: {e}")
+            self.update_status("设备模式切换失败", is_error=True)
 
     def get_current_confidence(self) -> float:
         """获取当前置信度阈值"""

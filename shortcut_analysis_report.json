@@ -1,0 +1,254 @@
+{
+  "summary": {
+    "main_shortcuts_count": 4,
+    "manager_shortcuts_count": 27,
+    "total_unique_shortcuts": 29,
+    "conflicts_count": 2
+  },
+  "main_shortcuts": {
+    "Ctrl+Shift+T": {
+      "action": "labels",
+      "line": 972,
+      "description": "setShortcut for labels"
+    },
+    "Ctrl+Shift+R": {
+      "action": "draw_squares_option",
+      "line": 991,
+      "description": "setShortcut for draw_squares_option"
+    },
+    "Ctrl+Shift+S": {
+      "action": "single_class_mode",
+      "line": 1061,
+      "description": "setShortcut for single_class_mode"
+    },
+    "Ctrl+Shift+L": {
+      "action": "display_label_option",
+      "line": 1068,
+      "description": "setShortcut for display_label_option"
+    }
+  },
+  "manager_shortcuts": {
+    "Ctrl+Plus": {
+      "action": "zoom_in",
+      "line": 86,
+      "description": "放大",
+      "category": "视图操作"
+    },
+    "Ctrl+Minus": {
+      "action": "zoom_out",
+      "line": 87,
+      "description": "缩小",
+      "category": "视图操作"
+    },
+    "Ctrl+0": {
+      "action": "zoom_fit",
+      "line": 88,
+      "description": "适应窗口",
+      "category": "视图操作"
+    },
+    "Ctrl+1": {
+      "action": "zoom_original",
+      "line": 89,
+      "description": "原始大小",
+      "category": "视图操作"
+    },
+    "F11": {
+      "action": "toggle_fullscreen",
+      "line": 90,
+      "description": "全屏切换",
+      "category": "视图操作"
+    },
+    "Ctrl+Shift+T": {
+      "action": "batch_convert",
+      "line": 132,
+      "description": "批量转换",
+      "category": "批量操作"
+    },
+    "Ctrl+Right": {
+      "action": "next_image",
+      "line": 100,
+      "description": "下一张图像",
+      "category": "导航操作"
+    },
+    "Ctrl+Left": {
+      "action": "prev_image",
+      "line": 101,
+      "description": "上一张图像",
+      "category": "导航操作"
+    },
+    "Home": {
+      "action": "first_image",
+      "line": 102,
+      "description": "第一张图像",
+      "category": "导航操作"
+    },
+    "End": {
+      "action": "last_image",
+      "line": 103,
+      "description": "最后一张图像",
+      "category": "导航操作"
+    },
+    "R": {
+      "action": "create_rect",
+      "line": 106,
+      "description": "创建矩形",
+      "category": "标注操作"
+    },
+    "P": {
+      "action": "create_polygon",
+      "line": 107,
+      "description": "创建多边形",
+      "category": "标注操作"
+    },
+    "C": {
+      "action": "create_circle",
+      "line": 108,
+      "description": "创建圆形",
+      "category": "标注操作"
+    },
+    "L": {
+      "action": "create_line",
+      "line": 109,
+      "description": "创建线条",
+      "category": "标注操作"
+    },
+    "E": {
+      "action": "edit_mode",
+      "line": 110,
+      "description": "编辑模式",
+      "category": "标注操作"
+    },
+    "Ctrl+D": {
+      "action": "duplicate_shape",
+      "line": 111,
+      "description": "复制形状",
+      "category": "标注操作"
+    },
+    "F9": {
+      "action": "ai_toggle_panel",
+      "line": 118,
+      "description": "切换AI面板",
+      "category": "AI助手"
+    },
+    "Ctrl+B": {
+      "action": "batch_operations",
+      "line": 129,
+      "description": "批量操作",
+      "category": "批量操作"
+    },
+    "Ctrl+Shift+C": {
+      "action": "batch_copy",
+      "line": 130,
+      "description": "批量复制",
+      "category": "批量操作"
+    },
+    "Ctrl+Shift+D": {
+      "action": "batch_delete",
+      "line": 131,
+      "description": "批量删除",
+      "category": "批量操作"
+    },
+    "T": {
+      "action": "toggle_labels",
+      "line": 135,
+      "description": "切换标签显示",
+      "category": "工具操作"
+    },
+    "S": {
+      "action": "toggle_shapes",
+      "line": 136,
+      "description": "切换形状显示",
+      "category": "工具操作"
+    },
+    "G": {
+      "action": "toggle_grid",
+      "line": 137,
+      "description": "切换网格",
+      "category": "工具操作"
+    },
+    "Ctrl+Shift+L": {
+      "action": "color_dialog",
+      "line": 138,
+      "description": "颜色选择",
+      "category": "工具操作"
+    },
+    "F1": {
+      "action": "show_help",
+      "line": 141,
+      "description": "显示帮助",
+      "category": "帮助操作"
+    },
+    "Ctrl+H": {
+      "action": "show_shortcuts",
+      "line": 142,
+      "description": "显示快捷键",
+      "category": "帮助操作"
+    },
+    "Ctrl+Shift+A": {
+      "action": "about",
+      "line": 143,
+      "description": "关于",
+      "category": "帮助操作"
+    }
+  },
+  "conflicts": [
+    {
+      "shortcut": "Ctrl+Shift+T",
+      "sources": [
+        {
+          "source": "main",
+          "action": "labels",
+          "line": 972
+        },
+        {
+          "source": "manager",
+          "action": "toggle_labels",
+          "line": 91
+        },
+        {
+          "source": "manager",
+          "action": "batch_convert",
+          "line": 132
+        }
+      ]
+    },
+    {
+      "shortcut": "Ctrl+Shift+L",
+      "sources": [
+        {
+          "source": "main",
+          "action": "display_label_option",
+          "line": 1068
+        },
+        {
+          "source": "manager",
+          "action": "color_dialog",
+          "line": 138
+        }
+      ]
+    }
+  ],
+  "recommendations": [
+    {
+      "type": "main_manager_conflict",
+      "shortcut": "Ctrl+Shift+T",
+      "description": "主程序和快捷键管理器都定义了 Ctrl+Shift+T",
+      "suggestion": "修改快捷键管理器中的定义，避免与主程序冲突",
+      "affected_actions": [
+        "labels",
+        "toggle_labels",
+        "batch_convert"
+      ]
+    },
+    {
+      "type": "main_manager_conflict",
+      "shortcut": "Ctrl+Shift+L",
+      "description": "主程序和快捷键管理器都定义了 Ctrl+Shift+L",
+      "suggestion": "修改快捷键管理器中的定义，避免与主程序冲突",
+      "affected_actions": [
+        "display_label_option",
+        "color_dialog"
+      ]
+    }
+  ]
+}

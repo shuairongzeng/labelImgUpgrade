@@ -1,0 +1,205 @@
+{
+  "verification_date": "2025-01-31",
+  "status": "SUCCESS",
+  "summary": {
+    "main_shortcuts_count": 0,
+    "manager_shortcuts_count": 48,
+    "remaining_conflicts": 0
+  },
+  "main_shortcuts": {},
+  "manager_shortcuts": {
+    "Ctrl+O": {
+      "action": "open_file",
+      "line": 71
+    },
+    "Ctrl+S": {
+      "action": "save_file",
+      "line": 72
+    },
+    "Ctrl+Shift+S": {
+      "action": "save_as",
+      "line": 73
+    },
+    "Ctrl+W": {
+      "action": "close_file",
+      "line": 74
+    },
+    "Ctrl+Q": {
+      "action": "quit",
+      "line": 75
+    },
+    "Ctrl+Z": {
+      "action": "undo",
+      "line": 78
+    },
+    "Ctrl+Y": {
+      "action": "redo",
+      "line": 79
+    },
+    "Ctrl+C": {
+      "action": "copy",
+      "line": 80
+    },
+    "Ctrl+V": {
+      "action": "paste",
+      "line": 81
+    },
+    "Delete": {
+      "action": "delete",
+      "line": 82
+    },
+    "Ctrl+A": {
+      "action": "select_all",
+      "line": 83
+    },
+    "Ctrl+Plus": {
+      "action": "zoom_in",
+      "line": 86
+    },
+    "Ctrl+Minus": {
+      "action": "zoom_out",
+      "line": 87
+    },
+    "Ctrl+0": {
+      "action": "zoom_fit",
+      "line": 88
+    },
+    "Ctrl+1": {
+      "action": "zoom_original",
+      "line": 89
+    },
+    "F11": {
+      "action": "toggle_fullscreen",
+      "line": 90
+    },
+    "Ctrl+Shift+T": {
+      "action": "toggle_labels",
+      "line": 91
+    },
+    "Ctrl+Alt+R": {
+      "action": "toggle_draw_square",
+      "line": 92
+    },
+    "Ctrl+Alt+M": {
+      "action": "single_class_mode",
+      "line": 94
+    },
+    "Ctrl+Alt+O": {
+      "action": "display_label_option",
+      "line": 96
+    },
+    "Ctrl+Right": {
+      "action": "next_image",
+      "line": 100
+    },
+    "Ctrl+Left": {
+      "action": "prev_image",
+      "line": 101
+    },
+    "Home": {
+      "action": "first_image",
+      "line": 102
+    },
+    "End": {
+      "action": "last_image",
+      "line": 103
+    },
+    "R": {
+      "action": "create_rect",
+      "line": 106
+    },
+    "P": {
+      "action": "create_polygon",
+      "line": 107
+    },
+    "C": {
+      "action": "create_circle",
+      "line": 108
+    },
+    "L": {
+      "action": "create_line",
+      "line": 109
+    },
+    "E": {
+      "action": "edit_mode",
+      "line": 110
+    },
+    "Ctrl+Alt+C": {
+      "action": "duplicate_shape",
+      "line": 111
+    },
+    "Ctrl+P": {
+      "action": "ai_predict_current",
+      "line": 114
+    },
+    "Ctrl+Shift+P": {
+      "action": "ai_predict_batch",
+      "line": 116
+    },
+    "F9": {
+      "action": "ai_toggle_panel",
+      "line": 118
+    },
+    "Ctrl+Up": {
+      "action": "ai_increase_confidence",
+      "line": 119
+    },
+    "Ctrl+Down": {
+      "action": "ai_decrease_confidence",
+      "line": 121
+    },
+    "Ctrl+Enter": {
+      "action": "ai_apply_predictions",
+      "line": 123
+    },
+    "Ctrl+Delete": {
+      "action": "ai_clear_predictions",
+      "line": 125
+    },
+    "Ctrl+B": {
+      "action": "batch_operations",
+      "line": 129
+    },
+    "Ctrl+Shift+C": {
+      "action": "batch_copy",
+      "line": 130
+    },
+    "Ctrl+Alt+D": {
+      "action": "batch_delete",
+      "line": 131
+    },
+    "Ctrl+Alt+T": {
+      "action": "batch_convert",
+      "line": 132
+    },
+    "T": {
+      "action": "toggle_labels",
+      "line": 91
+    },
+    "S": {
+      "action": "toggle_shapes",
+      "line": 136
+    },
+    "G": {
+      "action": "toggle_grid",
+      "line": 137
+    },
+    "Ctrl+Alt+L": {
+      "action": "color_dialog",
+      "line": 138
+    },
+    "F1": {
+      "action": "show_help",
+      "line": 141
+    },
+    "F2": {
+      "action": "show_shortcuts",
+      "line": 142
+    },
+    "F12": {
+      "action": "about",
+      "line": 143
+    }
+  },
+  "remaining_conflicts": []
+}

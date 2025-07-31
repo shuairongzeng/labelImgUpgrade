@@ -993,6 +993,58 @@
         "device": "cuda"
       },
       "status": "completed"
+    },
+    {
+      "session_id": "session_20250731_221014",
+      "session_name": "YOLO训练_20250731_221014",
+      "timestamp": "2025-07-31T22:10:14.835455",
+      "dataset_path": "./datasets\\training_dataset\\data.yaml",
+      "image_count": 8,
+      "image_files": [
+        "datasets\\training_dataset\\images\\train\\DZ4aaF3DQs.png",
+        "datasets\\training_dataset\\images\\train\\gaAqtP3ZD9.png",
+        "datasets\\training_dataset\\images\\train\\JH41rkyG5R.png",
+        "datasets\\training_dataset\\images\\train\\tt8RjeYpzb.png",
+        "datasets\\training_dataset\\images\\train\\vmware_BS4PE4OCOs.png",
+        "datasets\\training_dataset\\images\\train\\YBKgdb0nLu.png",
+        "datasets\\training_dataset\\images\\val\\Qww98p3Mit.png",
+        "datasets\\training_dataset\\images\\val\\uQuvnnrGmP.png"
+      ],
+      "model_path": "D:\\GitHub\\python_labelImg-master\\labelImg-master\\models\\custom\\trained_model_20250731_221014.pt",
+      "training_config": {
+        "epochs": 10,
+        "batch_size": 16,
+        "learning_rate": 0.01,
+        "model_type": "custom",
+        "device": "cpu"
+      },
+      "status": "completed"
+    },
+    {
+      "session_id": "session_20250731_231526",
+      "session_name": "YOLO训练_20250731_231526",
+      "timestamp": "2025-07-31T23:15:26.496567",
+      "dataset_path": "D:\\GitHub\\python_labelImg-master\\labelImg-master\\datasets\\training_dataset\\data.yaml",
+      "image_count": 8,
+      "image_files": [
+        "datasets\\training_dataset\\images\\train\\DZ4aaF3DQs.png",
+        "datasets\\training_dataset\\images\\train\\gaAqtP3ZD9.png",
+        "datasets\\training_dataset\\images\\train\\JH41rkyG5R.png",
+        "datasets\\training_dataset\\images\\train\\tt8RjeYpzb.png",
+        "datasets\\training_dataset\\images\\train\\vmware_BS4PE4OCOs.png",
+        "datasets\\training_dataset\\images\\train\\YBKgdb0nLu.png",
+        "datasets\\training_dataset\\images\\val\\Qww98p3Mit.png",
+        "datasets\\training_dataset\\images\\val\\uQuvnnrGmP.png"
+      ],
+      "model_path": "D:\\GitHub\\python_labelImg-master\\labelImg-master\\models\\custom\\trained_model_20250731_231525.pt",
+      "training_config": {
+        "epochs": 10,
+        "batch_size": 16,
+        "learning_rate": 0.01,
+        "model_type": "custom",
+        "device": "cuda"
+      },
+      "status": "completed"
     }
   ]
 }

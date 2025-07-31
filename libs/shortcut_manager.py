@@ -90,11 +90,11 @@ class ShortcutManager(QObject):
         self.register_action("toggle_fullscreen", "全屏切换", "F11", "视图操作")
         self.register_action("toggle_labels", "切换标签面板", "Ctrl+Shift+T", "视图操作")
         self.register_action("toggle_draw_square",
-                             "切换矩形绘制", "Ctrl+Shift+R", "视图操作")
+                             "切换矩形绘制", "Ctrl+Alt+R", "视图操作")
         self.register_action("single_class_mode", "单类模式",
-                             "Ctrl+Shift+M", "视图操作")  # 修改为M避免与另存为冲突
+                             "Ctrl+Alt+M", "视图操作")  # 修改避免与export_model冲突
         self.register_action("display_label_option",
-                             "显示标签选项", "Ctrl+Shift+L", "视图操作")
+                             "显示标签选项", "Ctrl+Alt+O", "视图操作")  # 避免与主程序冲突
 
         # 导航操作 (注意：A/D键由原有系统处理，避免冲突)
         self.register_action("next_image", "下一张图像", "Ctrl+Right", "导航操作")
@@ -108,7 +108,7 @@ class ShortcutManager(QObject):
         self.register_action("create_circle", "创建圆形", "C", "标注操作")
         self.register_action("create_line", "创建线条", "L", "标注操作")
         self.register_action("edit_mode", "编辑模式", "E", "标注操作")
-        self.register_action("duplicate_shape", "复制形状", "Ctrl+D", "标注操作")
+        self.register_action("duplicate_shape", "复制形状", "Ctrl+Alt+C", "标注操作")
 
         # AI助手操作
         self.register_action("ai_predict_current",
@@ -128,19 +128,19 @@ class ShortcutManager(QObject):
         # 批量操作
         self.register_action("batch_operations", "批量操作", "Ctrl+B", "批量操作")
         self.register_action("batch_copy", "批量复制", "Ctrl+Shift+C", "批量操作")
-        self.register_action("batch_delete", "批量删除", "Ctrl+Shift+D", "批量操作")
-        self.register_action("batch_convert", "批量转换", "Ctrl+Shift+T", "批量操作")
+        self.register_action("batch_delete", "批量删除", "Ctrl+Alt+D", "批量操作")
+        self.register_action("batch_convert", "批量转换", "Ctrl+Alt+T", "批量操作")
 
         # 工具操作
         self.register_action("toggle_labels", "切换标签显示", "T", "工具操作")
         self.register_action("toggle_shapes", "切换形状显示", "S", "工具操作")
         self.register_action("toggle_grid", "切换网格", "G", "工具操作")
-        self.register_action("color_dialog", "颜色选择", "Ctrl+Shift+L", "工具操作")
+        self.register_action("color_dialog", "颜色选择", "Ctrl+Alt+L", "工具操作")
 
         # 帮助操作
         self.register_action("show_help", "显示帮助", "F1", "帮助操作")
-        self.register_action("show_shortcuts", "显示快捷键", "Ctrl+H", "帮助操作")
-        self.register_action("about", "关于", "Ctrl+Shift+A", "帮助操作")
+        self.register_action("show_shortcuts", "显示快捷键", "F2", "帮助操作")  # 避免与hide_all冲突
+        self.register_action("about", "关于", "F12", "帮助操作")  # 避免与advanced_mode冲突
 
     def register_action(self, name: str, description: str, default_key: str,
                         category: str, callback: Callable = None) -> bool:
