@@ -548,19 +548,26 @@ class MainWindow(QMainWindow, WindowMixin):
 
         # Create clear predefined labels button
         self.clear_labels_button = QPushButton('🗑️ 清空预设标签')
-        self.clear_labels_button.setToolTip('清空所有预设标签')
+        self.clear_labels_button.setToolTip('清空所有预设标签（危险操作，不可撤销）')
         self.clear_labels_button.setStyleSheet("""
             QPushButton {
-                background-color: #f44336;
+                background-color: #ff5722;
                 color: white;
-                border: none;
+                border: 2px solid #e64a19;
                 border-radius: 6px;
-                padding: 8px 16px;
+                padding: 6px 12px;
                 font-weight: 500;
-                font-size: 12px;
+                font-size: 11px;
+                min-height: 16px;
             }
             QPushButton:hover {
-                background-color: #d32f2f;
+                background-color: #e64a19;
+                border-color: #d84315;
+                box-shadow: 0 2px 4px rgba(255, 87, 34, 0.3);
+            }
+            QPushButton:pressed {
+                background-color: #d84315;
+                border-color: #bf360c;
             }
         """)
         self.clear_labels_button.clicked.connect(
@@ -568,22 +575,34 @@ class MainWindow(QMainWindow, WindowMixin):
 
         # Create switch to unannotated image button
         self.switch_unannotated_button = QPushButton('🎯 切换到未标注图片')
-        self.switch_unannotated_button.setToolTip('快速跳转到下一张未标注的图片')
+        self.switch_unannotated_button.setToolTip('快速跳转到下一张未标注的图片（最常用功能）')
         self.switch_unannotated_button.setStyleSheet("""
             QPushButton {
-                background-color: #2196f3;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #66bb6a, stop:1 #4caf50);
                 color: white;
                 border: none;
-                border-radius: 6px;
-                padding: 8px 16px;
-                font-weight: 500;
-                font-size: 12px;
+                border-radius: 8px;
+                padding: 12px 20px;
+                font-weight: 600;
+                font-size: 14px;
+                min-height: 20px;
+                text-align: center;
             }
             QPushButton:hover {
-                background-color: #1976d2;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #5cb85c, stop:1 #449d44);
+                transform: translateY(-1px);
+                box-shadow: 0 4px 8px rgba(76, 175, 80, 0.3);
             }
             QPushButton:pressed {
-                background-color: #0d47a1;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #449d44, stop:1 #388e3c);
+                transform: translateY(0px);
+            }
+            QPushButton:disabled {
+                background-color: #e0e0e0;
+                color: #9e9e9e;
             }
         """)
         self.switch_unannotated_button.clicked.connect(
@@ -593,26 +612,31 @@ class MainWindow(QMainWindow, WindowMixin):
 
         # Create delete current image button
         self.delete_current_image_button = QPushButton('🗑️ 删除当前图片')
-        self.delete_current_image_button.setToolTip('删除当前显示的图片文件（不可撤销）')
+        self.delete_current_image_button.setToolTip('删除当前显示的图片文件（极度危险，不可撤销）')
         self.delete_current_image_button.setStyleSheet("""
             QPushButton {
-                background-color: #ff5722;
+                background-color: #f44336;
                 color: white;
-                border: none;
+                border: 2px solid #d32f2f;
                 border-radius: 6px;
-                padding: 8px 16px;
+                padding: 6px 12px;
                 font-weight: 500;
-                font-size: 12px;
+                font-size: 11px;
+                min-height: 16px;
             }
             QPushButton:hover {
-                background-color: #e64a19;
+                background-color: #d32f2f;
+                border-color: #c62828;
+                box-shadow: 0 2px 4px rgba(244, 67, 54, 0.4);
             }
             QPushButton:pressed {
-                background-color: #d84315;
+                background-color: #c62828;
+                border-color: #b71c1c;
             }
             QPushButton:disabled {
-                background-color: #bdbdbd;
-                color: #757575;
+                background-color: #e0e0e0;
+                color: #9e9e9e;
+                border-color: #bdbdbd;
             }
         """)
         self.delete_current_image_button.clicked.connect(
@@ -640,9 +664,83 @@ class MainWindow(QMainWindow, WindowMixin):
         list_layout.addWidget(self.edit_button)
         list_layout.addWidget(diffc_container)
         list_layout.addWidget(use_default_label_container)
-        list_layout.addWidget(self.clear_labels_button)
-        list_layout.addWidget(self.switch_unannotated_button)
-        list_layout.addWidget(self.delete_current_image_button)
+
+        # 创建主要操作区域（常用功能）
+        main_actions_group = QGroupBox("🎯 主要操作")
+        main_actions_group.setStyleSheet("""
+            QGroupBox {
+                background-color: #f8fff8;
+                border: 2px solid #4caf50;
+                border-radius: 8px;
+                margin: 8px 0;
+                padding-top: 16px;
+                font-weight: 600;
+                color: #2e7d32;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 12px;
+                padding: 0 8px;
+                background-color: #f8fff8;
+                color: #2e7d32;
+            }
+        """)
+        main_actions_layout = QVBoxLayout(main_actions_group)
+        main_actions_layout.setContentsMargins(12, 8, 12, 12)
+        main_actions_layout.setSpacing(8)
+
+        # 将切换到未标注图片按钮放在主要操作区域
+        main_actions_layout.addWidget(self.switch_unannotated_button)
+        list_layout.addWidget(main_actions_group)
+
+        # 添加分隔空间
+        spacer = QWidget()
+        spacer.setFixedHeight(12)
+        list_layout.addWidget(spacer)
+
+        # 创建危险操作区域
+        danger_actions_group = QGroupBox("⚠️ 危险操作")
+        danger_actions_group.setStyleSheet("""
+            QGroupBox {
+                background-color: #fff8f0;
+                border: 2px solid #ff9800;
+                border-radius: 8px;
+                margin: 8px 0;
+                padding-top: 16px;
+                font-weight: 600;
+                color: #e65100;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 12px;
+                padding: 0 8px;
+                background-color: #fff8f0;
+                color: #e65100;
+            }
+        """)
+        danger_actions_layout = QVBoxLayout(danger_actions_group)
+        danger_actions_layout.setContentsMargins(12, 8, 12, 12)
+        danger_actions_layout.setSpacing(6)
+
+        # 添加警告提示
+        warning_label = QLabel("⚠️ 请谨慎操作，以下操作不可撤销")
+        warning_label.setStyleSheet("""
+            QLabel {
+                color: #e65100;
+                font-size: 11px;
+                font-weight: 500;
+                padding: 4px 8px;
+                background-color: #ffe0b2;
+                border-radius: 4px;
+                margin-bottom: 4px;
+            }
+        """)
+        danger_actions_layout.addWidget(warning_label)
+
+        # 将危险操作按钮放在危险操作区域
+        danger_actions_layout.addWidget(self.clear_labels_button)
+        danger_actions_layout.addWidget(self.delete_current_image_button)
+        list_layout.addWidget(danger_actions_group)
 
         # 添加标签搜索框
         label_search_layout = QHBoxLayout()
@@ -1238,6 +1336,9 @@ class MainWindow(QMainWindow, WindowMixin):
         elif self.last_opened_dir and os.path.exists(self.last_opened_dir):
             self.open_dir_dialog(dir_path=self.last_opened_dir, silent=True)
 
+        # 最终确保状态栏可见（在所有初始化完成后）
+        QTimer.singleShot(100, self.ensure_status_bar_visible)
+
     def keyReleaseEvent(self, event):
         if event.key() == Qt.Key_Control:
             self.canvas.set_drawing_shape_to_square(False)
@@ -1274,6 +1375,8 @@ class MainWindow(QMainWindow, WindowMixin):
         """更新标签统计信息"""
         total_count = self.label_list.count()
         self.label_stats_label.setText(f'📊 标签统计: {total_count} 个')
+        # 同时更新状态栏信息
+        self.update_status_bar_info()
 
     def setup_quick_actions_panel(self):
         """设置快捷操作面板"""
@@ -1546,38 +1649,118 @@ class MainWindow(QMainWindow, WindowMixin):
         """设置增强的状态栏"""
         status_bar = self.statusBar()
 
+        # 清空现有的状态栏内容（如果有的话）
+        status_bar.clearMessage()
+
         # 图片信息标签
         self.image_info_label = QLabel('📷 未加载图片')
-        status_bar.addWidget(self.image_info_label)
+        status_bar.addPermanentWidget(self.image_info_label)
 
         # 分隔符
         separator1 = QLabel('|')
         separator1.setStyleSheet('color: #bdbdbd; margin: 0 8px;')
-        status_bar.addWidget(separator1)
+        status_bar.addPermanentWidget(separator1)
 
-        # 标注统计标签
+        # 当前图片标注统计标签
         self.annotation_stats_label = QLabel('🏷️ 标注: 0')
-        status_bar.addWidget(self.annotation_stats_label)
+        status_bar.addPermanentWidget(self.annotation_stats_label)
 
         # 分隔符
         separator2 = QLabel('|')
         separator2.setStyleSheet('color: #bdbdbd; margin: 0 8px;')
-        status_bar.addWidget(separator2)
+        status_bar.addPermanentWidget(separator2)
 
         # 缩放信息标签
         self.zoom_info_label = QLabel('🔍 缩放: 100%')
-        status_bar.addWidget(self.zoom_info_label)
+        status_bar.addPermanentWidget(self.zoom_info_label)
 
-        # 弹性空间
-        status_bar.addWidget(QWidget(), 1)
+        # 分隔符
+        separator3 = QLabel('|')
+        separator3.setStyleSheet('color: #bdbdbd; margin: 0 8px;')
+        status_bar.addPermanentWidget(separator3)
+
+        # 标注进度信息（详细）
+        self.annotation_progress_label = QLabel('📈 进度: 0/0 (0%)')
+        self.annotation_progress_label.setStyleSheet("""
+            QLabel {
+                font-weight: 600;
+                color: #1976d2;
+                padding: 2px 6px;
+                background-color: #e3f2fd;
+                border-radius: 4px;
+            }
+        """)
+        status_bar.addPermanentWidget(self.annotation_progress_label)
+
+        # 添加进度条（增强视觉效果）
+        self.annotation_progress_bar = QProgressBar()
+        self.annotation_progress_bar.setMinimumWidth(120)
+        self.annotation_progress_bar.setMaximumWidth(150)
+        self.annotation_progress_bar.setMinimumHeight(20)
+        self.annotation_progress_bar.setMaximumHeight(20)
+        self.annotation_progress_bar.setStyleSheet("""
+            QProgressBar {
+                border: 2px solid #1976d2;
+                border-radius: 10px;
+                text-align: center;
+                font-size: 11px;
+                font-weight: 700;
+                color: #1976d2;
+                background-color: #f5f5f5;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #4caf50, stop:0.5 #66bb6a, stop:1 #81c784);
+                border-radius: 8px;
+                margin: 1px;
+            }
+        """)
+        status_bar.addPermanentWidget(self.annotation_progress_bar)
+
+        # 当前图片状态指示器
+        self.current_image_status = QLabel('⚪ 未标注')
+        self.current_image_status.setStyleSheet("""
+            QLabel {
+                font-weight: 600;
+                padding: 2px 8px;
+                border-radius: 4px;
+            }
+        """)
+        status_bar.addPermanentWidget(self.current_image_status)
+
+        # 分隔符
+        separator4 = QLabel('|')
+        separator4.setStyleSheet('color: #bdbdbd; margin: 0 8px;')
+        status_bar.addPermanentWidget(separator4)
 
         # 鼠标坐标标签
         self.label_coordinates = QLabel('📍 坐标: (0, 0)')
         status_bar.addPermanentWidget(self.label_coordinates)
 
-        # 进度信息标签
-        self.progress_label = QLabel('📊 进度: 0/0')
-        status_bar.addPermanentWidget(self.progress_label)
+        # 分隔符
+        separator5 = QLabel('|')
+        separator5.setStyleSheet('color: #bdbdbd; margin: 0 8px;')
+        status_bar.addPermanentWidget(separator5)
+
+        # 当前位置信息标签
+        self.position_label = QLabel('📊 位置: 0/0')
+        status_bar.addPermanentWidget(self.position_label)
+
+        # 初始化状态栏信息
+        self.update_status_bar_info()
+
+        # 强制显示状态栏（防止restoreState隐藏状态栏）
+        status_bar.setVisible(True)
+        status_bar.show()
+
+        print("[DEBUG] 状态栏设置完成，强制显示状态栏")
+
+    def ensure_status_bar_visible(self):
+        """确保状态栏可见（在初始化完成后调用）"""
+        status_bar = self.statusBar()
+        status_bar.setVisible(True)
+        status_bar.show()
+        print(f"[DEBUG] 最终确保状态栏可见: {status_bar.isVisible()}")
 
     def update_status_bar_info(self):
         """更新状态栏信息"""
@@ -1588,21 +1771,117 @@ class MainWindow(QMainWindow, WindowMixin):
         else:
             self.image_info_label.setText('📷 未加载图片')
 
-        # 更新标注统计
+        # 更新当前图片标注统计
         if hasattr(self, 'label_list'):
             count = self.label_list.count()
-            self.annotation_stats_label.setText(f'🏷️ 标注: {count}')
+            self.annotation_stats_label.setText(f'🏷️ 当前: {count}个')
 
         # 更新缩放信息
         if hasattr(self, 'zoom_widget'):
             zoom = self.zoom_widget.value()
             self.zoom_info_label.setText(f'🔍 缩放: {zoom}%')
 
-        # 更新进度信息
-        if hasattr(self, 'm_img_list') and hasattr(self, 'cur_img_idx'):
-            total = len(self.m_img_list)
-            current = self.cur_img_idx + 1 if total > 0 else 0
-            self.progress_label.setText(f'📊 进度: {current}/{total}')
+        # 更新详细的标注进度信息
+        stats = self.calculate_annotation_statistics()
+
+        # 更新进度标签（优化显示格式）
+        if stats["total"] > 0:
+            progress_text = f'📈 已标注: {stats["annotated"]} | 未标注: {stats["unannotated"]} | 总计: {stats["total"]} ({stats["percentage"]:.1f}%)'
+        else:
+            progress_text = '📈 暂无图片'
+        self.annotation_progress_label.setText(progress_text)
+
+        # 设置详细的工具提示（增强版）
+        if stats["total"] > 0:
+            remaining = stats["unannotated"]
+            completion_rate = stats["percentage"]
+
+            # 创建更丰富的工具提示
+            tooltip_text = (
+                f'📊 标注进度详细统计\n'
+                f'{"="*30}\n\n'
+                f'✅ 已标注图片: {stats["annotated"]} 张\n'
+                f'⚪ 未标注图片: {stats["unannotated"]} 张\n'
+                f'📁 图片总数: {stats["total"]} 张\n'
+                f'📈 完成进度: {completion_rate:.1f}%\n\n'
+                f'🎯 当前位置: 第 {stats["current_index"]} 张\n'
+                f'📍 当前状态: {"✅ 已标注" if stats["current_annotated"] else "⚪ 未标注"}\n\n'
+            )
+
+            if remaining > 0:
+                tooltip_text += f'💡 提示: 还需标注 {remaining} 张图片才能完成'
+                if completion_rate > 50:
+                    tooltip_text += f'\n🎯 加油！已经完成了一半以上'
+            else:
+                tooltip_text += f'🎉 恭喜！所有图片都已标注完成\n✨ 可以开始训练模型了'
+        else:
+            tooltip_text = (
+                f'📂 尚未加载图片\n'
+                f'{"="*20}\n\n'
+                f'💡 请先打开图片目录\n'
+                f'📁 文件 → 打开目录'
+            )
+
+        self.annotation_progress_label.setToolTip(tooltip_text)
+
+        # 更新进度条
+        self.annotation_progress_bar.setValue(int(stats["percentage"]))
+        self.annotation_progress_bar.setFormat(f'{stats["percentage"]:.1f}%')
+
+        # 为进度条设置工具提示
+        if stats["total"] > 0:
+            bar_tooltip = (
+                f'📊 可视化进度条\n'
+                f'{"="*20}\n\n'
+                f'📈 完成进度: {stats["percentage"]:.1f}%\n'
+                f'✅ 已完成: {stats["annotated"]} 张\n'
+                f'⚪ 剩余: {stats["unannotated"]} 张\n'
+                f'📁 总计: {stats["total"]} 张'
+            )
+            if stats["percentage"] == 100:
+                bar_tooltip += f'\n\n🎉 全部完成！'
+            elif stats["percentage"] >= 75:
+                bar_tooltip += f'\n\n🎯 即将完成！'
+            elif stats["percentage"] >= 50:
+                bar_tooltip += f'\n\n💪 已过半程！'
+            elif stats["percentage"] >= 25:
+                bar_tooltip += f'\n\n🚀 进展顺利！'
+            else:
+                bar_tooltip += f'\n\n📝 刚刚开始'
+        else:
+            bar_tooltip = (
+                f'📊 进度条\n'
+                f'{"="*15}\n\n'
+                f'💡 请先加载图片目录'
+            )
+        self.annotation_progress_bar.setToolTip(bar_tooltip)
+
+        # 更新当前图片状态指示器
+        if stats["current_annotated"]:
+            self.current_image_status.setText('✅ 已标注')
+            self.current_image_status.setStyleSheet("""
+                QLabel {
+                    font-weight: 600;
+                    padding: 2px 8px;
+                    border-radius: 4px;
+                    background-color: #e8f5e8;
+                    color: #2e7d32;
+                }
+            """)
+        else:
+            self.current_image_status.setText('⚪ 未标注')
+            self.current_image_status.setStyleSheet("""
+                QLabel {
+                    font-weight: 600;
+                    padding: 2px 8px;
+                    border-radius: 4px;
+                    background-color: #fff3e0;
+                    color: #f57c00;
+                }
+            """)
+
+        # 更新位置信息
+        self.position_label.setText(f'📊 位置: {stats["current_index"]}/{stats["total"]}')
 
         # 更新自动保存状态
         if hasattr(self, 'auto_save_indicator'):
@@ -2750,6 +3029,9 @@ class MainWindow(QMainWindow, WindowMixin):
             # 智能预测：如果开启了智能预测且当前图片未标注，则自动执行预测
             self.trigger_smart_prediction_if_needed()
 
+            # 更新状态栏信息
+            self.update_status_bar_info()
+
             return True
         return False
 
@@ -2879,6 +3161,49 @@ class MainWindow(QMainWindow, WindowMixin):
             # 当前图片就是未标注的
             self.statusBar().showMessage('📍 当前图片尚未标注')
 
+    def calculate_annotation_statistics(self):
+        """
+        计算详细的标注统计信息
+
+        Returns:
+            dict: 包含标注统计信息的字典
+        """
+        if not hasattr(self, 'm_img_list') or not self.m_img_list:
+            return {
+                'total': 0,
+                'annotated': 0,
+                'unannotated': 0,
+                'percentage': 0.0,
+                'current_annotated': False,
+                'current_index': 0
+            }
+
+        total_images = len(self.m_img_list)
+        annotated_count = 0
+        current_annotated = False
+
+        # 遍历所有图片检查标注状态
+        for i, img_path in enumerate(self.m_img_list):
+            is_annotated = self.is_image_annotated(img_path)
+            if is_annotated:
+                annotated_count += 1
+
+            # 检查当前图片的标注状态
+            if i == self.cur_img_idx:
+                current_annotated = is_annotated
+
+        unannotated_count = total_images - annotated_count
+        percentage = (annotated_count / total_images * 100) if total_images > 0 else 0.0
+
+        return {
+            'total': total_images,
+            'annotated': annotated_count,
+            'unannotated': unannotated_count,
+            'percentage': percentage,
+            'current_annotated': current_annotated,
+            'current_index': self.cur_img_idx + 1 if total_images > 0 else 0
+        }
+
     def update_switch_button_state(self):
         """
         更新切换到未标注图片按钮和删除当前图片按钮的状态
@@ -2889,9 +3214,10 @@ class MainWindow(QMainWindow, WindowMixin):
             self.switch_unannotated_button.setEnabled(has_images)
 
             if has_images:
-                # 检查是否还有未标注的图片
-                unannotated_count = sum(1 for img_path in self.m_img_list
-                                        if not self.is_image_annotated(img_path))
+                # 使用新的统计方法
+                stats = self.calculate_annotation_statistics()
+                unannotated_count = stats['unannotated']
+
                 if unannotated_count > 0:
                     self.switch_unannotated_button.setToolTip(
                         f'快速跳转到下一张未标注的图片 (还有 {unannotated_count} 张未标注)')
@@ -3279,8 +3605,9 @@ class MainWindow(QMainWindow, WindowMixin):
             item = QListWidgetItem(imgPath)
             self.file_list_widget.addItem(item)
 
-        # 更新切换按钮状态
+        # 更新切换按钮状态和状态栏信息
         self.update_switch_button_state()
+        self.update_status_bar_info()
 
     def verify_image(self, _value=False):
         # Proceeding next image without dialog if having any label
@@ -3417,8 +3744,9 @@ class MainWindow(QMainWindow, WindowMixin):
             self.set_clean()
             self.statusBar().showMessage('Saved to  %s' % annotation_file_path)
             self.statusBar().show()
-            # 保存后更新切换按钮状态
+            # 保存后更新切换按钮状态和状态栏信息
             self.update_switch_button_state()
+            self.update_status_bar_info()
 
     def close_file(self, _value=False):
         if not self.may_continue():
@@ -3481,7 +3809,7 @@ class MainWindow(QMainWindow, WindowMixin):
         # 获取当前图片信息
         current_file = os.path.basename(self.file_path)
 
-        # 显示确认对话框
+        # 第一次确认对话框
         reply = QMessageBox.question(
             self,
             '🗑️ 确认删除当前图片',
@@ -3498,6 +3826,23 @@ class MainWindow(QMainWindow, WindowMixin):
         )
 
         if reply != QMessageBox.Yes:
+            return
+
+        # 第二次确认 - 需要输入确认文字
+        from PyQt5.QtWidgets import QInputDialog
+        confirmation_text, ok = QInputDialog.getText(
+            self,
+            '🚨 最终确认删除',
+            f'这是最后一次确认！\n\n'
+            f'要删除的文件: {current_file}\n\n'
+            f'⚠️ 此操作将永久删除文件，无法恢复！\n\n'
+            f'请输入 "确认删除" 来继续操作：',
+            QLineEdit.Normal,
+            ''
+        )
+
+        if not ok or confirmation_text.strip() != '确认删除':
+            QMessageBox.information(self, '操作取消', '删除操作已取消。')
             return
 
         try:
@@ -3543,8 +3888,9 @@ class MainWindow(QMainWindow, WindowMixin):
                 self.close_file()
                 self.delete_current_image_button.setEnabled(False)
 
-            # 更新切换按钮状态
+            # 更新切换按钮状态和状态栏信息
             self.update_switch_button_state()
+            self.update_status_bar_info()
 
             # 显示删除成功信息
             status_msg = f"✅ 已删除: {current_file}"
@@ -3995,14 +4341,51 @@ class MainWindow(QMainWindow, WindowMixin):
         """
         带确认对话框的清空预设标签功能
         """
-        reply = QMessageBox.question(self, '确认清空',
-                                     '确定要清空所有预设标签吗？此操作不可撤销。',
-                                     QMessageBox.Yes | QMessageBox.No,
-                                     QMessageBox.No)
+        # 检查是否有预设标签
+        if not self.label_hist:
+            QMessageBox.information(self, '提示', '当前没有预设标签需要清空。')
+            return
 
-        if reply == QMessageBox.Yes:
-            self.clear_predefined_classes()
-            QMessageBox.information(self, '操作完成', '所有预设标签已清空。')
+        # 第一次确认
+        labels_count = len(self.label_hist)
+        reply = QMessageBox.question(
+            self,
+            '🗑️ 确认清空预设标签',
+            f'确定要清空所有预设标签吗？\n\n'
+            f'📊 当前共有 {labels_count} 个预设标签\n'
+            f'📝 标签列表: {", ".join(self.label_hist[:10])}{"..." if labels_count > 10 else ""}\n\n'
+            f'⚠️ 警告：\n'
+            f'• 所有预设标签将被永久删除\n'
+            f'• 此操作不可撤销\n'
+            f'• 需要重新添加标签\n\n'
+            f'确定要继续吗？',
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply != QMessageBox.Yes:
+            return
+
+        # 第二次确认 - 需要输入确认文字
+        from PyQt5.QtWidgets import QInputDialog
+        confirmation_text, ok = QInputDialog.getText(
+            self,
+            '🚨 最终确认清空',
+            f'这是最后一次确认！\n\n'
+            f'即将清空 {labels_count} 个预设标签\n\n'
+            f'⚠️ 此操作将永久删除所有预设标签！\n\n'
+            f'请输入 "清空标签" 来继续操作：',
+            QLineEdit.Normal,
+            ''
+        )
+
+        if not ok or confirmation_text.strip() != '清空标签':
+            QMessageBox.information(self, '操作取消', '清空操作已取消。')
+            return
+
+        # 执行清空操作
+        self.clear_predefined_classes()
+        QMessageBox.information(self, '操作完成', f'已成功清空 {labels_count} 个预设标签。')
 
     def load_pascal_xml_by_filename(self, xml_path):
         if self.file_path is None:
