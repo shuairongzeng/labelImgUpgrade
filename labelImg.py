@@ -48,6 +48,7 @@ except ImportError:
 
 from libs.combobox import ComboBox
 from libs.default_label_combobox import DefaultLabelComboBox
+from libs.delete_confirmation_dialog import DeleteConfirmationDialog, SimpleDeleteConfirmationDialog
 from libs.resources import *
 from libs.constants import *
 
@@ -468,8 +469,17 @@ class MainWindow(QMainWindow, WindowMixin):
 
         # Save as Pascal voc xml
         self.default_save_dir = default_save_dir
-        self.label_file_format = settings.get(
-            SETTING_LABEL_FILE_FORMAT, LabelFileFormat.PASCAL_VOC)
+
+        # 强制使用XML格式作为默认格式，确保标注文件以XML格式保存
+        # 这样可以确保与YOLO导出功能的兼容性
+        self.label_file_format = LabelFileFormat.PASCAL_VOC
+
+        # 如果用户之前保存了其他格式设置，我们仍然强制使用XML格式
+        # 因为大多数功能（如YOLO导出）都依赖XML格式
+        saved_format = settings.get(SETTING_LABEL_FILE_FORMAT, LabelFileFormat.PASCAL_VOC)
+        if saved_format != LabelFileFormat.PASCAL_VOC:
+            print(f"注意：检测到之前保存的标注格式为 {saved_format}，已重置为XML格式以确保兼容性")
+            self.label_file_format = LabelFileFormat.PASCAL_VOC
 
         # For loading all image under a directory
         self.m_img_list = []
@@ -612,31 +622,43 @@ class MainWindow(QMainWindow, WindowMixin):
 
         # Create delete current image button
         self.delete_current_image_button = QPushButton('🗑️ 删除当前图片')
-        self.delete_current_image_button.setToolTip('删除当前显示的图片文件（极度危险，不可撤销）')
+        self.delete_current_image_button.setToolTip(
+            '⚠️ 危险操作：删除当前图片\n\n'
+            '• 将永久删除图片文件\n'
+            '• 同时删除相关标注文件\n'
+            '• 此操作不可撤销！\n\n'
+            '💡 提示：可在工具菜单中重置删除确认设置'
+        )
         self.delete_current_image_button.setStyleSheet("""
             QPushButton {
                 background-color: #f44336;
                 color: white;
                 border: 2px solid #d32f2f;
                 border-radius: 6px;
-                padding: 6px 12px;
-                font-weight: 500;
-                font-size: 11px;
-                min-height: 16px;
+                padding: 8px 16px;
+                font-weight: 600;
+                font-size: 12px;
+                min-height: 20px;
+                transition: all 0.3s ease;
             }
             QPushButton:hover {
                 background-color: #d32f2f;
                 border-color: #c62828;
-                box-shadow: 0 2px 4px rgba(244, 67, 54, 0.4);
+                box-shadow: 0 4px 8px rgba(244, 67, 54, 0.6);
+                transform: translateY(-1px);
+                font-size: 13px;
             }
             QPushButton:pressed {
                 background-color: #c62828;
                 border-color: #b71c1c;
+                box-shadow: 0 2px 4px rgba(244, 67, 54, 0.8);
+                transform: translateY(0px);
             }
             QPushButton:disabled {
                 background-color: #e0e0e0;
                 color: #9e9e9e;
                 border-color: #bdbdbd;
+                box-shadow: none;
             }
         """)
         self.delete_current_image_button.clicked.connect(
@@ -1015,6 +1037,8 @@ class MainWindow(QMainWindow, WindowMixin):
                           'Ctrl+-', 'zoom-out', get_str('zoomoutDetail'), enabled=False)
         zoom_org = action(get_str('originalsize'), partial(self.set_zoom, 100),
                           'Ctrl+=', 'zoom', get_str('originalsizeDetail'), enabled=False)
+        reset_zoom_pref = action('重置缩放偏好', self.reset_zoom_preference,
+                                'Ctrl+Shift+R', 'reset', '重置到默认缩放模式', enabled=False)
         fit_window = action(get_str('fitWin'), self.set_fit_window,
                             'Ctrl+F', 'fit-window', get_str('fitWinDetail'),
                             checkable=True, enabled=False)
@@ -1024,7 +1048,7 @@ class MainWindow(QMainWindow, WindowMixin):
                            checkable=True, enabled=False)
         # Group zoom controls into a list for easier toggling.
         zoom_actions = (self.zoom_widget, zoom_in, zoom_out,
-                        zoom_org, fit_window, fit_width)
+                        zoom_org, reset_zoom_pref, fit_window, fit_width)
         self.zoom_mode = self.MANUAL_ZOOM
         self.scalers = {
             self.FIT_WINDOW: self.scale_fit_window,
@@ -1115,6 +1139,10 @@ class MainWindow(QMainWindow, WindowMixin):
         shortcut_config = action('⌨️ 快捷键配置', self.show_shortcut_config_dialog,
                                  'Ctrl+K', 'shortcut_config', '配置快捷键')
 
+        # 重置删除确认设置动作
+        reset_delete_confirmation = action('🔄 重置删除确认', self.reset_delete_confirmation_settings,
+                                          None, 'reset_confirmation', '恢复删除确认对话框显示')
+
         # Store actions for further handling.
         self.actions = Struct(save=save, save_format=save_format, saveAs=save_as, open=open, close=close, resetAll=reset_all, deleteImg=delete_image,
                               lineColor=color1, create=create, delete=delete, edit=edit, copy=copy,
@@ -1181,14 +1209,14 @@ class MainWindow(QMainWindow, WindowMixin):
             labels, advanced_mode, None,
             hide_all, show_all, None,
             zoom_in, zoom_out, zoom_org, None,
-            fit_window, fit_width, None,
+            fit_window, fit_width, reset_zoom_pref, None,
             light_brighten, light_darken, light_org))
 
         # 添加工具菜单项
         add_actions(self.menus.tools, (
             ai_predict_current, ai_predict_batch, ai_toggle_panel, None,
             batch_operations, batch_copy, batch_delete, None,
-            shortcut_config))
+            shortcut_config, reset_delete_confirmation))
 
         self.menus.file.aboutToShow.connect(self.update_file_menu)
 
@@ -1230,6 +1258,11 @@ class MainWindow(QMainWindow, WindowMixin):
         self.fit_window = False
         # Add Chris
         self.difficult = False
+
+        # 用户缩放偏好设置
+        self.user_preferred_zoom_enabled = False  # 是否启用用户偏好缩放
+        self.user_preferred_zoom_mode = self.FIT_WINDOW  # 用户偏好的缩放模式
+        self.user_preferred_zoom_value = 100  # 用户偏好的缩放值（百分比）
 
         # Fix the compatible issue for qt4 and qt5. Convert the QStringList to python list
         if settings.get(SETTING_RECENT_FILES):
@@ -1283,6 +1316,15 @@ class MainWindow(QMainWindow, WindowMixin):
         Shape.fill_color = self.fill_color = QColor(
             settings.get(SETTING_FILL_COLOR, DEFAULT_FILL_COLOR))
         self.canvas.set_drawing_color(self.line_color)
+
+        # 加载用户缩放偏好设置
+        self.user_preferred_zoom_enabled = settings.get('user_preferred_zoom_enabled', False)
+        self.user_preferred_zoom_mode = settings.get('user_preferred_zoom_mode', self.FIT_WINDOW)
+        self.user_preferred_zoom_value = settings.get('user_preferred_zoom_value', 100)
+
+        # 确保使用XML格式并正确设置UI
+        self.set_format(FORMAT_PASCALVOC)
+
         # Add chris
         Shape.difficult = self.difficult
 
@@ -1779,7 +1821,18 @@ class MainWindow(QMainWindow, WindowMixin):
         # 更新缩放信息
         if hasattr(self, 'zoom_widget'):
             zoom = self.zoom_widget.value()
-            self.zoom_info_label.setText(f'🔍 缩放: {zoom}%')
+            zoom_text = f'🔍 缩放: {zoom}%'
+
+            # 添加用户偏好缩放的提示
+            if hasattr(self, 'user_preferred_zoom_enabled') and self.user_preferred_zoom_enabled:
+                if self.zoom_mode == self.MANUAL_ZOOM:
+                    zoom_text += ' (自定义)'
+                elif self.zoom_mode == self.FIT_WINDOW:
+                    zoom_text += ' (适应窗口*)'
+                elif self.zoom_mode == self.FIT_WIDTH:
+                    zoom_text += ' (适应宽度*)'
+
+            self.zoom_info_label.setText(zoom_text)
 
         # 更新详细的标注进度信息
         stats = self.calculate_annotation_statistics()
@@ -2842,6 +2895,12 @@ class MainWindow(QMainWindow, WindowMixin):
         self.actions.fitWidth.setChecked(False)
         self.actions.fitWindow.setChecked(False)
         self.zoom_mode = self.MANUAL_ZOOM
+
+        # 记录用户手动调整的缩放偏好
+        self.user_preferred_zoom_enabled = True
+        self.user_preferred_zoom_mode = self.MANUAL_ZOOM
+        self.user_preferred_zoom_value = int(value)
+
         # Arithmetic on scaling factor often results in float
         # Convert to int to avoid type errors
         self.zoom_widget.setValue(int(value))
@@ -2907,12 +2966,18 @@ class MainWindow(QMainWindow, WindowMixin):
     def set_fit_window(self, value=True):
         if value:
             self.actions.fitWidth.setChecked(False)
+            # 记录用户选择的缩放模式偏好
+            self.user_preferred_zoom_enabled = True
+            self.user_preferred_zoom_mode = self.FIT_WINDOW
         self.zoom_mode = self.FIT_WINDOW if value else self.MANUAL_ZOOM
         self.adjust_scale()
 
     def set_fit_width(self, value=True):
         if value:
             self.actions.fitWindow.setChecked(False)
+            # 记录用户选择的缩放模式偏好
+            self.user_preferred_zoom_enabled = True
+            self.user_preferred_zoom_mode = self.FIT_WIDTH
         self.zoom_mode = self.FIT_WIDTH if value else self.MANUAL_ZOOM
         self.adjust_scale()
 
@@ -3399,17 +3464,50 @@ class MainWindow(QMainWindow, WindowMixin):
         self.update_status_bar_info()
 
     def adjust_scale(self, initial=False):
-        # 当initial=True时，表示首次加载图片，应该使用FIT_WINDOW模式
-        # 并且同步更新zoom_mode以保持一致性
+        # 当initial=True时，检查是否使用用户偏好缩放
         if initial:
-            self.zoom_mode = self.FIT_WINDOW
-            # 同时更新UI状态
-            self.actions.fitWindow.setChecked(True)
-            self.actions.fitWidth.setChecked(False)
+            if self.user_preferred_zoom_enabled:
+                # 使用用户偏好的缩放设置
+                self.zoom_mode = self.user_preferred_zoom_mode
+                if self.zoom_mode == self.FIT_WINDOW:
+                    self.actions.fitWindow.setChecked(True)
+                    self.actions.fitWidth.setChecked(False)
+                elif self.zoom_mode == self.FIT_WIDTH:
+                    self.actions.fitWindow.setChecked(False)
+                    self.actions.fitWidth.setChecked(True)
+                else:  # MANUAL_ZOOM
+                    self.actions.fitWindow.setChecked(False)
+                    self.actions.fitWidth.setChecked(False)
+            else:
+                # 使用默认的FIT_WINDOW模式
+                self.zoom_mode = self.FIT_WINDOW
+                self.actions.fitWindow.setChecked(True)
+                self.actions.fitWidth.setChecked(False)
 
-        value = self.scalers[self.zoom_mode]()
-        zoom_percentage = int(100 * value)
+        # 计算缩放值
+        if self.zoom_mode == self.MANUAL_ZOOM and self.user_preferred_zoom_enabled:
+            # 对于手动缩放模式，直接使用用户偏好的缩放值
+            zoom_percentage = self.user_preferred_zoom_value
+        else:
+            # 对于自适应模式，计算缩放值
+            value = self.scalers[self.zoom_mode]()
+            zoom_percentage = int(100 * value)
+            # 如果用户启用了偏好且当前是自适应模式，更新偏好值
+            if self.user_preferred_zoom_enabled and self.zoom_mode != self.MANUAL_ZOOM:
+                self.user_preferred_zoom_value = zoom_percentage
+
         self.zoom_widget.setValue(zoom_percentage)
+
+    def reset_zoom_preference(self):
+        """重置用户缩放偏好到默认状态"""
+        self.user_preferred_zoom_enabled = False
+        self.user_preferred_zoom_mode = self.FIT_WINDOW
+        self.user_preferred_zoom_value = 100
+        # 重新应用默认缩放
+        self.zoom_mode = self.FIT_WINDOW
+        self.actions.fitWindow.setChecked(True)
+        self.actions.fitWidth.setChecked(False)
+        self.adjust_scale()
 
     def scale_fit_window(self):
         """Figure out the size of the pixmap in order to fit the main widget."""
@@ -3481,6 +3579,12 @@ class MainWindow(QMainWindow, WindowMixin):
         settings[SETTING_PAINT_LABEL] = self.display_label_option.isChecked()
         settings[SETTING_DRAW_SQUARE] = self.draw_squares_option.isChecked()
         settings[SETTING_LABEL_FILE_FORMAT] = self.label_file_format
+
+        # 保存用户缩放偏好设置
+        settings['user_preferred_zoom_enabled'] = self.user_preferred_zoom_enabled
+        settings['user_preferred_zoom_mode'] = self.user_preferred_zoom_mode
+        settings['user_preferred_zoom_value'] = self.user_preferred_zoom_value
+
         settings.save()
 
     def load_recent(self, filename):
@@ -3764,17 +3868,31 @@ class MainWindow(QMainWindow, WindowMixin):
         """删除当前图片（通过菜单或快捷键调用）"""
         delete_path = self.file_path
         if delete_path is not None:
-            # 添加确认对话框
-            reply = QMessageBox.question(self, '确认删除',
-                                         f'确定要彻底删除当前图片吗？\n\n{os.path.basename(delete_path)}\n\n'
-                                         '⚠️ 警告：图片将从磁盘彻底删除，此操作不可撤销！',
-                                         QMessageBox.Yes | QMessageBox.No,
-                                         QMessageBox.No)
+            # 检查是否需要显示确认对话框
+            if DeleteConfirmationDialog.should_show_confirmation("delete_menu"):
+                # 显示智能确认对话框
+                dialog = DeleteConfirmationDialog(
+                    parent=self,
+                    file_path=delete_path,
+                    operation_type="delete_menu"
+                )
 
-            if reply != QMessageBox.Yes:
-                return
+                if dialog.exec_() != QDialog.Accepted:
+                    return
+            else:
+                # 显示简化确认对话框
+                dialog = SimpleDeleteConfirmationDialog(
+                    parent=self,
+                    file_path=delete_path
+                )
+
+                if dialog.exec_() != QMessageBox.Yes:
+                    return
 
             idx = self.cur_img_idx
+            current_file = os.path.basename(delete_path)
+            deleted_annotations = []
+
             if os.path.exists(delete_path):
                 os.remove(delete_path)
 
@@ -3787,6 +3905,7 @@ class MainWindow(QMainWindow, WindowMixin):
                 for ann_file in annotation_files:
                     if os.path.exists(ann_file):
                         os.remove(ann_file)
+                        deleted_annotations.append(os.path.basename(ann_file))
 
             self.import_dir_images(self.last_open_dir)
             if self.img_count > 0:
@@ -3796,8 +3915,16 @@ class MainWindow(QMainWindow, WindowMixin):
             else:
                 self.close_file()
 
-            # 显示状态信息
-            self.status(f"已彻底删除: {os.path.basename(delete_path)}")
+            # 显示增强的状态信息
+            status_msg = f"✅ 已删除: {current_file}"
+            if deleted_annotations:
+                status_msg += f" (含标注: {', '.join(deleted_annotations)})"
+
+            # 如果用户禁用了确认对话框，提供恢复提示
+            if not DeleteConfirmationDialog.should_show_confirmation("delete_menu"):
+                status_msg += " | 💡 可通过菜单恢复删除确认对话框"
+
+            self.status(status_msg)
 
     def delete_current_image(self):
         """从标签面板删除当前图片（通过按钮调用）"""
@@ -3806,48 +3933,31 @@ class MainWindow(QMainWindow, WindowMixin):
             QMessageBox.information(self, '提示', '当前没有加载的图片可以删除。')
             return
 
-        # 获取当前图片信息
-        current_file = os.path.basename(self.file_path)
+        # 检查是否需要显示确认对话框
+        if DeleteConfirmationDialog.should_show_confirmation("delete_current"):
+            # 显示智能确认对话框
+            dialog = DeleteConfirmationDialog(
+                parent=self,
+                file_path=self.file_path,
+                operation_type="delete_current"
+            )
 
-        # 第一次确认对话框
-        reply = QMessageBox.question(
-            self,
-            '🗑️ 确认删除当前图片',
-            f'确定要彻底删除当前显示的图片吗？\n\n'
-            f'📁 文件名: {current_file}\n'
-            f'📂 路径: {os.path.dirname(self.file_path)}\n\n'
-            f'⚠️ 警告：\n'
-            f'• 图片文件将从磁盘彻底删除\n'
-            f'• 对应的标注文件也会被删除\n'
-            f'• 此操作不可撤销！\n\n'
-            f'请确认是否继续？',
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No  # 默认选择"否"以防误操作
-        )
+            if dialog.exec_() != QDialog.Accepted:
+                return
+        else:
+            # 显示简化确认对话框
+            dialog = SimpleDeleteConfirmationDialog(
+                parent=self,
+                file_path=self.file_path
+            )
 
-        if reply != QMessageBox.Yes:
-            return
-
-        # 第二次确认 - 需要输入确认文字
-        from PyQt5.QtWidgets import QInputDialog
-        confirmation_text, ok = QInputDialog.getText(
-            self,
-            '🚨 最终确认删除',
-            f'这是最后一次确认！\n\n'
-            f'要删除的文件: {current_file}\n\n'
-            f'⚠️ 此操作将永久删除文件，无法恢复！\n\n'
-            f'请输入 "确认删除" 来继续操作：',
-            QLineEdit.Normal,
-            ''
-        )
-
-        if not ok or confirmation_text.strip() != '确认删除':
-            QMessageBox.information(self, '操作取消', '删除操作已取消。')
-            return
+            if dialog.exec_() != QMessageBox.Yes:
+                return
 
         try:
             delete_path = self.file_path
             current_idx = self.cur_img_idx
+            current_file = os.path.basename(delete_path)  # 添加这个变量定义
 
             # 删除图片文件
             if os.path.exists(delete_path):
@@ -3892,10 +4002,15 @@ class MainWindow(QMainWindow, WindowMixin):
             self.update_switch_button_state()
             self.update_status_bar_info()
 
-            # 显示删除成功信息
+            # 显示删除成功信息 - 增强状态栏提示
             status_msg = f"✅ 已删除: {current_file}"
             if deleted_annotations:
                 status_msg += f" (含标注: {', '.join(deleted_annotations)})"
+
+            # 如果用户禁用了确认对话框，提供恢复提示
+            if not DeleteConfirmationDialog.should_show_confirmation("delete_current"):
+                status_msg += " | 💡 可通过菜单恢复删除确认对话框"
+
             self.status(status_msg)
 
         except Exception as e:
@@ -3956,6 +4071,53 @@ class MainWindow(QMainWindow, WindowMixin):
 
         except Exception as e:
             QMessageBox.warning(self, '错误', f'移除文件失败：{str(e)}')
+
+    def reset_delete_confirmation_settings(self):
+        """重置删除确认设置，恢复显示确认对话框"""
+        try:
+            # 显示确认对话框
+            reply = QMessageBox.question(
+                self,
+                '🔄 重置删除确认设置',
+                '确定要重置删除确认设置吗？\n\n'
+                '重置后：\n'
+                '• 删除图片时将重新显示完整的确认对话框\n'
+                '• 之前选择的"不再提示"设置将被清除\n'
+                '• 这有助于防止误删除操作\n\n'
+                '是否继续？',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+
+            if reply == QMessageBox.Yes:
+                # 调用重置方法
+                success = DeleteConfirmationDialog.reset_confirmation_settings()
+
+                if success:
+                    QMessageBox.information(
+                        self,
+                        '✅ 重置成功',
+                        '删除确认设置已重置！\n\n'
+                        '现在删除图片时将重新显示完整的确认对话框，\n'
+                        '帮助您避免误删除操作。'
+                    )
+
+                    # 更新状态栏
+                    self.status("✅ 删除确认设置已重置")
+                else:
+                    QMessageBox.warning(
+                        self,
+                        '❌ 重置失败',
+                        '重置删除确认设置时发生错误。\n\n'
+                        '请检查设置文件权限或重启应用程序后重试。'
+                    )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                '错误',
+                f'重置删除确认设置时发生错误：\n\n{str(e)}'
+            )
 
     def delete_file_permanently(self):
         """彻底删除文件（从磁盘删除）"""

@@ -23,6 +23,8 @@ except ImportError:
 from .ai_assistant import YOLOPredictor, ModelManager, BatchProcessor, ConfidenceFilter
 from .ai_assistant.yolo_trainer import YOLOTrainer, TrainingConfig
 from .training_history_manager import TrainingHistoryManager
+from .smart_epochs_calculator import SmartEpochsCalculator
+from .training_config_manager import TrainingConfigManager
 
 # 设置日志
 logger = logging.getLogger(__name__)
@@ -537,6 +539,8 @@ class AIAssistantPanel(QWidget):
         self.confidence_filter = None
         self.trainer = None
         self.training_history_manager = None
+        self.smart_epochs_calculator = SmartEpochsCalculator()
+        self.training_config_manager = TrainingConfigManager()
 
         # 界面状态
         self.current_predictions = []
@@ -2268,11 +2272,38 @@ class AIAssistantPanel(QWidget):
             params_group = QGroupBox("⚙️ 训练参数")
             params_layout = QFormLayout(params_group)
 
-            # 训练轮数
+            # 训练轮数 - 添加智能计算功能
+            epochs_layout = QHBoxLayout()
             self.epochs_spin = QSpinBox()
             self.epochs_spin.setRange(10, 1000)
             self.epochs_spin.setValue(100)
-            params_layout.addRow("训练轮数:", self.epochs_spin)
+            self.epochs_spin.setToolTip("训练轮数：模型训练的总轮数")
+            epochs_layout.addWidget(self.epochs_spin)
+
+            # 智能计算按钮
+            smart_calc_btn = QPushButton("🧠")
+            smart_calc_btn.setMaximumWidth(35)
+            smart_calc_btn.setToolTip(
+                "🧠 智能计算推荐的训练轮数\n\n"
+                "基于以下因素智能计算：\n"
+                "• 数据集大小（图片数量）\n"
+                "• 模型复杂度（yolov8n/s/m/l/x）\n"
+                "• 类别数量\n"
+                "• 数据集质量（训练/验证比例）\n"
+                "• 批次大小\n\n"
+                "💡 提示：需要先选择data.yaml配置文件"
+            )
+            smart_calc_btn.clicked.connect(self.calculate_smart_epochs)
+            epochs_layout.addWidget(smart_calc_btn)
+
+            # 帮助按钮
+            help_btn = QPushButton("❓")
+            help_btn.setMaximumWidth(35)
+            help_btn.setToolTip("查看智能计算器使用帮助")
+            help_btn.clicked.connect(self.show_smart_epochs_help)
+            epochs_layout.addWidget(help_btn)
+
+            params_layout.addRow("训练轮数:", epochs_layout)
 
             # 批次大小
             self.batch_spin = QSpinBox()
@@ -4219,6 +4250,20 @@ class AIAssistantPanel(QWidget):
 
             layout.addWidget(data_options_group)
 
+            # 当前路径显示
+            current_path_group = QGroupBox("📁 当前工作目录")
+            current_path_layout = QVBoxLayout(current_path_group)
+
+            self.current_path_label = QLabel("正在检测...")
+            self.current_path_label.setStyleSheet(
+                "color: #2c3e50; padding: 8px; border: 1px solid #bdc3c7; "
+                "border-radius: 4px; background-color: #ecf0f1; font-family: monospace;"
+            )
+            self.current_path_label.setWordWrap(True)
+            current_path_layout.addWidget(self.current_path_label)
+
+            layout.addWidget(current_path_group)
+
             # 进度显示
             self.auto_progress_bar = QProgressBar()
             self.auto_progress_bar.setVisible(False)
@@ -4267,82 +4312,178 @@ class AIAssistantPanel(QWidget):
             from PyQt5.QtWidgets import QMessageBox
             import os
 
-            # 获取当前工作目录
-            parent_window = self.parent()
-            while parent_window and not hasattr(parent_window, 'last_open_dir'):
-                parent_window = parent_window.parent()
+            logger.info("🔍 开始检查当前数据...")
 
-            if not parent_window or not hasattr(parent_window, 'last_open_dir'):
+            # 获取主窗口（MainWindow）
+            main_window = None
+            parent = self.parent()
+
+            # 向上查找直到找到MainWindow
+            while parent:
+                if hasattr(parent, 'last_open_dir') and hasattr(parent, 'open_dir_dialog'):
+                    main_window = parent
+                    break
+                parent = parent.parent()
+
+            if not main_window:
+                error_msg = "未找到主窗口，无法获取当前工作目录"
+                logger.error(error_msg)
+                self._safe_append_auto_log(f"❌ {error_msg}")
                 if not silent:
-                    QMessageBox.warning(dialog, "检查失败", "未找到当前工作目录信息")
+                    QMessageBox.warning(dialog, "检查失败", error_msg)
                 return False
 
-            current_dir = parent_window.last_open_dir
-            if not current_dir or not os.path.exists(current_dir):
+            # 获取用户通过"打开目录"选择的路径
+            current_dir = main_window.last_open_dir
+            logger.info(f"📁 获取到的工作目录: {current_dir}")
+            self._safe_append_auto_log(f"📁 当前工作目录: {current_dir}")
+
+            # 更新UI中的路径显示
+            if hasattr(self, 'current_path_label'):
+                if current_dir:
+                    self.current_path_label.setText(current_dir)
+                else:
+                    self.current_path_label.setText("❌ 未选择目录")
+
+            if not current_dir:
+                error_msg = "请先使用'打开目录'功能选择包含图片和标注文件的目录"
+                logger.warning(error_msg)
+                self._safe_append_auto_log(f"⚠️ {error_msg}")
                 if not silent:
-                    QMessageBox.warning(dialog, "检查失败", "当前工作目录不存在")
+                    QMessageBox.warning(dialog, "检查失败", error_msg)
+                return False
+
+            if not os.path.exists(current_dir):
+                error_msg = f"工作目录不存在: {current_dir}"
+                logger.warning(error_msg)
+                self._safe_append_auto_log(f"❌ {error_msg}")
+                if not silent:
+                    QMessageBox.warning(dialog, "检查失败", error_msg)
                 return False
 
             # 检查目标数据集的现有文件信息
             self._check_existing_dataset_info()
 
-            # 检查是否有XML标注文件
-            xml_files = [f for f in os.listdir(
-                current_dir) if f.lower().endswith('.xml')]
-            if not xml_files:
+            # 列出目录中的所有文件
+            try:
+                all_files = os.listdir(current_dir)
+                logger.info(f"📋 目录中共有 {len(all_files)} 个文件")
+                self._safe_append_auto_log(f"📋 目录中共有 {len(all_files)} 个文件")
+            except Exception as e:
+                error_msg = f"无法读取目录内容: {str(e)}"
+                logger.error(error_msg)
+                self._safe_append_auto_log(f"❌ {error_msg}")
                 if not silent:
-                    QMessageBox.warning(
-                        dialog, "检查失败", "当前目录中没有找到XML标注文件\n请确保已经完成标注工作")
+                    QMessageBox.warning(dialog, "检查失败", error_msg)
                 return False
+
+            # 检查是否有标注文件（支持XML和JSON格式）
+            xml_files = [f for f in all_files if f.lower().endswith('.xml')]
+            json_files = [f for f in all_files if f.lower().endswith('.json')]
+
+            logger.info(f"🏷️ 找到 {len(xml_files)} 个XML标注文件")
+            logger.info(f"📄 找到 {len(json_files)} 个JSON标注文件")
+            self._safe_append_auto_log(f"🏷️ 找到 {len(xml_files)} 个XML标注文件")
+            self._safe_append_auto_log(f"📄 找到 {len(json_files)} 个JSON标注文件")
+
+            # 优先使用XML文件，如果没有XML文件则使用JSON文件
+            annotation_files = xml_files if xml_files else json_files
+            annotation_format = "XML" if xml_files else "JSON" if json_files else None
+
+            if not annotation_files:
+                error_msg = f"当前目录中没有找到标注文件\n目录: {current_dir}\n支持的格式: XML (.xml) 或 JSON (.json)\n请确保已经完成标注工作"
+                logger.warning(error_msg)
+                self._safe_append_auto_log(f"❌ 未找到标注文件")
+                if not silent:
+                    QMessageBox.warning(dialog, "检查失败", error_msg)
+                return False
+
+            logger.info(f"✅ 将使用 {annotation_format} 格式的标注文件")
+            self._safe_append_auto_log(f"✅ 将使用 {annotation_format} 格式的标注文件")
 
             # 检查是否有对应的图片文件
             image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff']
-            image_files = [f for f in os.listdir(current_dir)
+            image_files = [f for f in all_files
                            if any(f.lower().endswith(ext) for ext in image_extensions)]
 
+            logger.info(f"📸 找到 {len(image_files)} 个图片文件")
+            self._safe_append_auto_log(f"📸 找到 {len(image_files)} 个图片文件")
+
             if not image_files:
+                error_msg = f"当前目录中没有找到图片文件\n目录: {current_dir}\n支持的格式: {', '.join(image_extensions)}"
+                logger.warning(error_msg)
+                self._safe_append_auto_log(f"❌ 未找到图片文件")
                 if not silent:
-                    QMessageBox.warning(dialog, "检查失败", "当前目录中没有找到图片文件")
+                    QMessageBox.warning(dialog, "检查失败", error_msg)
                 return False
 
             # 检查图片和标注的对应关系
-            xml_basenames = {os.path.splitext(f)[0] for f in xml_files}
+            annotation_basenames = {os.path.splitext(f)[0] for f in annotation_files}
             image_basenames = {os.path.splitext(f)[0] for f in image_files}
 
-            matched_files = xml_basenames & image_basenames
+            matched_files = annotation_basenames & image_basenames
+            logger.info(f"✅ 匹配的文件对: {len(matched_files)} 对")
+            self._safe_append_auto_log(f"✅ 匹配的文件对: {len(matched_files)} 对")
+
             if len(matched_files) == 0:
+                error_msg = f"图片文件和标注文件名称不匹配\n\n图片文件示例: {image_files[:3] if image_files else '无'}\n{annotation_format}文件示例: {annotation_files[:3] if annotation_files else '无'}"
+                logger.warning(error_msg)
+                self._safe_append_auto_log(f"❌ 文件名不匹配")
                 if not silent:
-                    QMessageBox.warning(dialog, "检查失败", "图片文件和标注文件名称不匹配")
+                    QMessageBox.warning(dialog, "检查失败", error_msg)
                 return False
 
             # 显示检查结果
+            success_msg = (f"数据检查通过！\n\n"
+                          f"📁 工作目录: {current_dir}\n"
+                          f"📸 图片文件: {len(image_files)} 个\n"
+                          f"🏷️ 标注文件: {len(annotation_files)} 个 ({annotation_format}格式)\n"
+                          f"✅ 匹配文件: {len(matched_files)} 对\n\n"
+                          f"可以开始配置训练数据集！")
+
+            logger.info("✅ 数据检查通过")
+            self._safe_append_auto_log("✅ 数据检查通过")
+
             if not silent:
-                QMessageBox.information(dialog, "检查成功",
-                                        f"数据检查通过！\n\n"
-                                        f"📁 工作目录: {current_dir}\n"
-                                        f"📸 图片文件: {len(image_files)} 个\n"
-                                        f"🏷️ 标注文件: {len(xml_files)} 个\n"
-                                        f"✅ 匹配文件: {len(matched_files)} 对\n\n"
-                                        f"可以开始配置训练数据集！")
+                QMessageBox.information(dialog, "检查成功", success_msg)
 
             return True
 
         except Exception as e:
-            logger.error(f"检查当前数据失败: {str(e)}")
+            error_msg = f"检查当前数据失败: {str(e)}"
+            logger.error(error_msg)
+            self._safe_append_auto_log(f"❌ {error_msg}")
+
+            import traceback
+            logger.error(f"详细错误信息: {traceback.format_exc()}")
+
             if not silent:
-                QMessageBox.critical(dialog, "检查失败", f"检查过程出错: {str(e)}")
+                QMessageBox.critical(dialog, "检查失败", f"检查过程出错:\n\n{str(e)}\n\n请检查目录权限和文件访问权限。")
             return False
 
     def execute_auto_configuration(self, dialog):
         """执行自动配置"""
         try:
+            logger.info("🚀 开始执行自动配置")
+            self._safe_append_auto_log("🚀 开始执行自动配置...")
+
             # 先检查数据
+            logger.info("📋 检查当前数据...")
+            self._safe_append_auto_log("📋 检查当前数据...")
+
             if not self.check_current_data_for_export(dialog, silent=True):
+                logger.warning("❌ 数据检查失败")
+                self._safe_append_auto_log("❌ 数据检查失败")
+                self.start_config_btn.setEnabled(True)
                 return
+
+            logger.info("✅ 数据检查通过")
+            self._safe_append_auto_log("✅ 数据检查通过")
 
             from PyQt5.QtWidgets import QMessageBox
 
             # 确认开始配置
+            logger.info("💬 显示确认对话框")
             reply = QMessageBox.question(dialog, "确认配置",
                                          "即将开始自动配置训练数据集：\n\n"
                                          f"1. 导出YOLO格式数据集\n"
@@ -4355,19 +4496,52 @@ class AIAssistantPanel(QWidget):
                                          QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
 
             if reply != QMessageBox.Yes:
+                logger.info("❌ 用户取消配置")
+                self._safe_append_auto_log("❌ 用户取消配置")
                 return
 
+            logger.info("✅ 用户确认开始配置")
+            self._safe_append_auto_log("✅ 用户确认开始配置")
+
             # 禁用按钮，显示进度
+            logger.info("🔧 设置UI状态...")
             self.start_config_btn.setEnabled(False)
+            self.start_config_btn.setText("⏳ 配置中...")
             self.auto_progress_bar.setVisible(True)
+            self.auto_progress_bar.setValue(0)
             self.auto_log_text.setVisible(True)
             self.auto_log_text.clear()
 
+            # 强制刷新UI
+            from PyQt5.QtWidgets import QApplication
+            QApplication.processEvents()
+
+            self._safe_append_auto_log("🔧 UI状态设置完成")
+            QApplication.processEvents()  # 再次刷新以显示日志
+
             # 调用YOLO导出功能
+            logger.info("📦 调用YOLO导出功能...")
+            self._safe_append_auto_log("📦 调用YOLO导出功能...")
             self.call_yolo_export_and_configure(dialog)
 
         except Exception as e:
-            logger.error(f"执行自动配置失败: {str(e)}")
+            error_msg = f"执行自动配置失败: {str(e)}"
+            logger.error(error_msg)
+            self._safe_append_auto_log(f"❌ {error_msg}")
+
+            # 重新启用按钮
+            if hasattr(self, 'start_config_btn'):
+                self.start_config_btn.setEnabled(True)
+                self.start_config_btn.setText("🚀 开始配置")
+                from PyQt5.QtWidgets import QApplication
+                QApplication.processEvents()
+
+            # 显示错误对话框
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.critical(dialog, "配置失败", f"自动配置过程中发生错误：\n\n{str(e)}")
+
+            import traceback
+            logger.error(f"详细错误信息: {traceback.format_exc()}")
 
     def _create_filtered_source_dir(self, source_dir: str, dialog) -> str:
         """
@@ -4404,24 +4578,39 @@ class AIAssistantPanel(QWidget):
 
             image_extensions = ['.jpg', '.jpeg',
                                 '.png', '.bmp', '.tiff', '.tif']
-            xml_files = []
+            annotation_files = []
 
             # 获取所有文件列表
             all_files = os.listdir(source_dir)
-            xml_file_list = [
-                f for f in all_files if f.lower().endswith('.xml')]
+
+            # 查找标注文件（支持XML和JSON格式）
+            xml_file_list = [f for f in all_files if f.lower().endswith('.xml')]
+            json_file_list = [f for f in all_files if f.lower().endswith('.json')]
+
+            # 优先使用XML文件，如果没有XML文件则使用JSON文件
+            annotation_file_list = xml_file_list if xml_file_list else json_file_list
+            annotation_format = "XML" if xml_file_list else "JSON" if json_file_list else None
 
             self._safe_append_auto_log(f"📄 找到 {len(xml_file_list)} 个XML标注文件")
+            if json_file_list:
+                self._safe_append_auto_log(f"📄 找到 {len(json_file_list)} 个JSON标注文件")
+
+            if annotation_format:
+                self._safe_append_auto_log(f"✅ 将使用 {annotation_format} 格式的标注文件")
+            else:
+                self._safe_append_auto_log("❌ 未找到任何标注文件")
+                return source_dir
+
             QApplication.processEvents()  # 更新UI
 
-            # 检查每个XML文件对应的图片
-            update_interval = max(1, len(xml_file_list) // 20)  # 最多更新20次
-            for i, file in enumerate(xml_file_list):
+            # 检查每个标注文件对应的图片
+            update_interval = max(1, len(annotation_file_list) // 20)  # 最多更新20次
+            for i, file in enumerate(annotation_file_list):
                 # 动态调整更新频率，避免过于频繁的UI更新
-                if i % update_interval == 0 or i == len(xml_file_list) - 1:
-                    progress = int((i + 1) * 100 / len(xml_file_list))
+                if i % update_interval == 0 or i == len(annotation_file_list) - 1:
+                    progress = int((i + 1) * 100 / len(annotation_file_list))
                     self._safe_append_auto_log(
-                        f"📊 扫描进度: {i+1}/{len(xml_file_list)} ({progress}%)")
+                        f"📊 扫描进度: {i+1}/{len(annotation_file_list)} ({progress}%)")
                     QApplication.processEvents()  # 更新UI
 
                 # 检查是否有对应的图片文件
@@ -4435,9 +4624,9 @@ class AIAssistantPanel(QWidget):
                         break
 
                 if image_file:
-                    xml_files.append((file, image_file))
+                    annotation_files.append((file, image_file))
 
-            self._safe_append_auto_log(f"📊 找到 {len(xml_files)} 对有效的图片-标注文件")
+            self._safe_append_auto_log(f"📊 找到 {len(annotation_files)} 对有效的图片-标注文件")
             QApplication.processEvents()  # 更新UI
 
             # 过滤出未训练的图片
@@ -4447,19 +4636,19 @@ class AIAssistantPanel(QWidget):
             untrained_files = []
             trained_count = 0
 
-            check_update_interval = max(1, len(xml_files) // 10)  # 最多更新10次
-            for i, (xml_file, image_file) in enumerate(xml_files):
+            check_update_interval = max(1, len(annotation_files) // 10)  # 最多更新10次
+            for i, (annotation_file, image_file) in enumerate(annotation_files):
                 # 动态调整更新频率
-                if i % check_update_interval == 0 or i == len(xml_files) - 1:
-                    progress = int((i + 1) * 100 / len(xml_files))
+                if i % check_update_interval == 0 or i == len(annotation_files) - 1:
+                    progress = int((i + 1) * 100 / len(annotation_files))
                     self._safe_append_auto_log(
-                        f"🔍 检查进度: {i+1}/{len(xml_files)} ({progress}%)")
+                        f"🔍 检查进度: {i+1}/{len(annotation_files)} ({progress}%)")
                     QApplication.processEvents()  # 更新UI
 
                 image_path = os.path.join(source_dir, image_file)
 
                 if not self.is_image_trained(image_path, strict_mode):
-                    untrained_files.append((xml_file, image_file))
+                    untrained_files.append((annotation_file, image_file))
                 else:
                     trained_count += 1
 
@@ -4478,7 +4667,7 @@ class AIAssistantPanel(QWidget):
 
             copy_update_interval = max(
                 1, len(untrained_files) // 10)  # 最多更新10次
-            for i, (xml_file, image_file) in enumerate(untrained_files):
+            for i, (annotation_file, image_file) in enumerate(untrained_files):
                 # 动态调整更新频率
                 if i % copy_update_interval == 0 or i == len(untrained_files) - 1:
                     progress = int((i + 1) * 100 / len(untrained_files))
@@ -4487,10 +4676,10 @@ class AIAssistantPanel(QWidget):
                     QApplication.processEvents()  # 更新UI
 
                 try:
-                    # 复制XML文件
-                    src_xml = os.path.join(source_dir, xml_file)
-                    dst_xml = os.path.join(temp_dir, xml_file)
-                    shutil.copy2(src_xml, dst_xml)
+                    # 复制标注文件（XML或JSON）
+                    src_annotation = os.path.join(source_dir, annotation_file)
+                    dst_annotation = os.path.join(temp_dir, annotation_file)
+                    shutil.copy2(src_annotation, dst_annotation)
 
                     # 复制图片文件
                     src_image = os.path.join(source_dir, image_file)
@@ -4498,7 +4687,7 @@ class AIAssistantPanel(QWidget):
                     shutil.copy2(src_image, dst_image)
                 except Exception as copy_error:
                     self._safe_append_auto_log(
-                        f"⚠️ 复制文件失败: {xml_file}, {image_file} - {copy_error}")
+                        f"⚠️ 复制文件失败: {annotation_file}, {image_file} - {copy_error}")
                     # 继续处理其他文件，不中断整个过程
 
             self._safe_append_auto_log(
@@ -4521,19 +4710,37 @@ class AIAssistantPanel(QWidget):
     def call_yolo_export_and_configure(self, dialog):
         """调用YOLO导出功能并配置训练路径"""
         try:
+            logger.info("📦 开始YOLO导出和配置过程")
+            self._safe_append_auto_log("📦 开始YOLO导出和配置过程")
+
             import os
             from PyQt5.QtWidgets import QMessageBox
 
-            # 获取当前工作目录
-            parent_window = self.parent()
-            while parent_window and not hasattr(parent_window, 'last_open_dir'):
-                parent_window = parent_window.parent()
+            # 获取主窗口（MainWindow）
+            logger.info("🔍 查找主窗口...")
+            main_window = None
+            parent = self.parent()
 
-            if not parent_window:
-                QMessageBox.critical(dialog, "错误", "无法获取当前工作目录")
+            # 向上查找直到找到MainWindow
+            while parent:
+                if hasattr(parent, 'last_open_dir') and hasattr(parent, 'open_dir_dialog'):
+                    main_window = parent
+                    break
+                parent = parent.parent()
+
+            if not main_window:
+                error_msg = "无法获取主窗口，无法获取当前工作目录"
+                logger.error(error_msg)
+                self._safe_append_auto_log(f"❌ {error_msg}")
+                QMessageBox.critical(dialog, "错误", error_msg)
+                self.start_config_btn.setEnabled(True)
+                self.start_config_btn.setText("🚀 开始配置")
                 return
 
-            source_dir = parent_window.last_open_dir
+            logger.info(f"✅ 找到主窗口: {type(main_window).__name__}")
+
+            # 获取用户通过"打开目录"选择的路径
+            source_dir = main_window.last_open_dir
             target_dir = self.output_dir_edit.text()
             dataset_name = self.dataset_name_edit.text()
             train_ratio = self.train_ratio_spin.value() / 100.0
@@ -4608,6 +4815,7 @@ class AIAssistantPanel(QWidget):
                 def progress_callback(current, total, message):
                     self.auto_progress_bar.setValue(current)
                     self._safe_append_auto_log(f"[{current:3d}%] {message}")
+                    from PyQt5.QtWidgets import QApplication
                     QApplication.processEvents()  # 更新UI
 
                 self._safe_append_auto_log("🔄 开始转换...")
@@ -4671,6 +4879,10 @@ class AIAssistantPanel(QWidget):
 
                     # 重新启用按钮
                     self.start_config_btn.setEnabled(True)
+                    self.start_config_btn.setText("🚀 开始配置")
+                    self.auto_progress_bar.setValue(100)
+                    from PyQt5.QtWidgets import QApplication
+                    QApplication.processEvents()
 
                 else:
                     self._safe_append_auto_log(f"❌ 导出失败: {message}")
@@ -4685,7 +4897,23 @@ class AIAssistantPanel(QWidget):
                 self.start_config_btn.setEnabled(True)
 
         except Exception as e:
-            logger.error(f"调用YOLO导出功能失败: {str(e)}")
+            error_msg = f"调用YOLO导出功能失败: {str(e)}"
+            logger.error(error_msg)
+            self._safe_append_auto_log(f"❌ {error_msg}")
+
+            # 重新启用按钮
+            if hasattr(self, 'start_config_btn'):
+                self.start_config_btn.setEnabled(True)
+                self.start_config_btn.setText("🚀 开始配置")
+                from PyQt5.QtWidgets import QApplication
+                QApplication.processEvents()
+
+            # 显示错误对话框
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.critical(dialog, "导出失败", f"YOLO导出过程中发生错误：\n\n{str(e)}")
+
+            import traceback
+            logger.error(f"详细错误信息: {traceback.format_exc()}")
 
     def _record_exported_images(self, data_yaml_path: str):
         """
@@ -4799,6 +5027,7 @@ class AIAssistantPanel(QWidget):
         try:
             import sys
             import os
+            from PyQt5.QtWidgets import QApplication
             sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
             from libs.class_manager import ClassConfigManager
 
@@ -4958,6 +5187,9 @@ class AIAssistantPanel(QWidget):
             if config_path and os.path.exists(config_path):
                 self._safe_append_data_log("✅ 配置文件存在，开始加载...")
                 self.load_dataset_config(config_path)
+
+                # 加载用户偏好设置
+                self._load_user_preferences_for_dataset(config_path)
             else:
                 if config_path:
                     self._safe_append_data_log(f"❌ 配置文件不存在: {config_path}")
@@ -4969,6 +5201,36 @@ class AIAssistantPanel(QWidget):
             error_msg = f"处理数据集配置改变失败: {str(e)}"
             logger.error(error_msg)
             self._safe_append_data_log(f"❌ {error_msg}")
+
+    def _load_user_preferences_for_dataset(self, config_path):
+        """为数据集加载用户偏好设置"""
+        try:
+            user_preference = self.training_config_manager.get_user_preference_for_dataset(config_path)
+
+            if user_preference and hasattr(self, 'epochs_spin'):
+                preferred_epochs = user_preference.get('preferred_epochs')
+                if preferred_epochs and preferred_epochs != self.epochs_spin.value():
+                    # 询问用户是否要应用之前的偏好设置
+                    from PyQt5.QtWidgets import QMessageBox
+                    reply = QMessageBox.question(
+                        self,
+                        "发现用户偏好设置",
+                        f"检测到您之前为此数据集设置的训练轮数为 {preferred_epochs}。\n\n"
+                        f"是否要应用此设置？\n\n"
+                        f"当前设置: {self.epochs_spin.value()}\n"
+                        f"偏好设置: {preferred_epochs}",
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.Yes
+                    )
+
+                    if reply == QMessageBox.Yes:
+                        self.epochs_spin.setValue(preferred_epochs)
+                        self._safe_append_data_log(f"✅ 已应用用户偏好设置: {preferred_epochs} 轮")
+                    else:
+                        self._safe_append_data_log("⚠️ 用户选择不应用偏好设置")
+
+        except Exception as e:
+            logger.error(f"加载用户偏好设置失败: {str(e)}")
 
     def load_dataset_config(self, config_path):
         """加载数据集配置文件"""
@@ -6261,6 +6523,7 @@ pip install torch torchvision torchaudio
     def start_training(self, epochs, batch_size, learning_rate, model_size, device, progress_bar, log_text):
         """开始训练（模拟实现）"""
         try:
+            from PyQt5.QtWidgets import QApplication
             # 这里应该实现实际的训练逻辑
             # 暂时只是模拟训练过程
 
@@ -7679,6 +7942,517 @@ pip install torch torchvision torchaudio
             error_msg = f"刷新数据集配置失败: {str(e)}"
             logger.error(error_msg)
             self._safe_append_data_log(f"❌ {error_msg}")
+
+    def calculate_smart_epochs(self):
+        """智能计算推荐的训练轮数"""
+        try:
+            from PyQt5.QtWidgets import (QMessageBox, QDialog, QVBoxLayout, QHBoxLayout,
+                                       QLabel, QPushButton, QTextEdit, QProgressDialog)
+            from PyQt5.QtCore import Qt
+
+            # 检查是否选择了数据集配置文件
+            if not hasattr(self, 'dataset_config_edit') or not self.dataset_config_edit.text().strip():
+                QMessageBox.information(
+                    self,
+                    "🔍 需要数据集配置",
+                    "请先选择data.yaml数据集配置文件\n\n"
+                    "💡 提示：\n"
+                    "1. 点击'📁'按钮选择现有的data.yaml文件\n"
+                    "2. 或使用'一键配置训练数据集'功能生成配置文件"
+                )
+                return
+
+            config_path = self.dataset_config_edit.text().strip()
+            if not os.path.exists(config_path):
+                QMessageBox.warning(
+                    self,
+                    "❌ 文件不存在",
+                    f"数据集配置文件不存在：\n{config_path}\n\n"
+                    "请检查文件路径是否正确，或重新选择配置文件。"
+                )
+                return
+
+            # 显示进度对话框
+            progress = QProgressDialog("🧠 正在智能计算训练轮数...", "取消", 0, 100, self)
+            progress.setWindowTitle("智能计算中")
+            progress.setWindowModality(Qt.WindowModal)
+            progress.setMinimumDuration(0)
+            progress.setValue(0)
+            progress.show()
+
+            # 处理事件以显示进度对话框
+            from PyQt5.QtWidgets import QApplication
+            QApplication.processEvents()
+
+            # 步骤1：解析数据集配置
+            progress.setLabelText("📋 正在解析数据集配置...")
+            progress.setValue(20)
+            QApplication.processEvents()
+
+            if progress.wasCanceled():
+                return
+
+            dataset_info = self.smart_epochs_calculator.get_dataset_info_from_yaml(config_path)
+            if not dataset_info:
+                progress.close()
+                QMessageBox.critical(
+                    self,
+                    "❌ 解析失败",
+                    "无法解析数据集配置文件\n\n"
+                    "可能的原因：\n"
+                    "• YAML文件格式错误\n"
+                    "• 缺少必要的配置项（train, val, nc等）\n"
+                    "• 图片目录不存在或为空\n\n"
+                    "请检查配置文件是否正确。"
+                )
+                return
+
+            # 步骤2：统计数据集信息
+            progress.setLabelText(f"📊 正在统计数据集信息...\n找到 {dataset_info.total_images} 张图片")
+            progress.setValue(40)
+            QApplication.processEvents()
+
+            if progress.wasCanceled():
+                return
+
+            # 验证数据集基本要求
+            if dataset_info.total_images < 10:
+                progress.close()
+                QMessageBox.warning(
+                    self,
+                    "⚠️ 数据集过小",
+                    f"数据集只有 {dataset_info.total_images} 张图片，过少无法进行有效训练。\n\n"
+                    "建议：\n"
+                    "• 至少需要50张图片进行基础训练\n"
+                    "• 推荐100张以上图片获得更好效果\n"
+                    "• 考虑使用数据增强技术扩充数据集"
+                )
+                return
+
+            # 步骤3：获取训练参数
+            progress.setLabelText("⚙️ 正在获取训练参数...")
+            progress.setValue(60)
+            QApplication.processEvents()
+
+            if progress.wasCanceled():
+                return
+
+            # 获取当前选择的模型类型
+            model_type = "yolov8n"  # 默认值
+            if hasattr(self, 'get_selected_training_model'):
+                model_info = self.get_selected_training_model()
+                if model_info and 'name' in model_info:
+                    model_name = model_info['name'].lower()
+                    for size in ['n', 's', 'm', 'l', 'x']:
+                        if f'yolov8{size}' in model_name:
+                            model_type = f'yolov8{size}'
+                            break
+
+            # 获取批次大小
+            batch_size = self.batch_spin.value() if hasattr(self, 'batch_spin') else 16
+
+            # 步骤4：检查用户偏好设置
+            progress.setLabelText("👤 正在检查用户偏好设置...")
+            progress.setValue(70)
+            QApplication.processEvents()
+
+            if progress.wasCanceled():
+                return
+
+            user_preference = self.training_config_manager.get_user_preference_for_dataset(config_path)
+
+            # 步骤5：执行智能计算
+            progress.setLabelText("🧠 正在执行智能计算算法...")
+            progress.setValue(80)
+            QApplication.processEvents()
+
+            if progress.wasCanceled():
+                return
+
+            result = self.smart_epochs_calculator.calculate_smart_epochs(
+                dataset_info, model_type, batch_size)
+
+            # 步骤6：保存计算结果
+            progress.setLabelText("💾 正在保存计算结果...")
+            progress.setValue(90)
+            QApplication.processEvents()
+
+            if progress.wasCanceled():
+                return
+
+            self.training_config_manager.save_smart_calc_result(
+                config_path,
+                {
+                    "total_images": dataset_info.total_images,
+                    "train_images": dataset_info.train_images,
+                    "val_images": dataset_info.val_images,
+                    "num_classes": dataset_info.num_classes
+                },
+                {
+                    "recommended_epochs": result.recommended_epochs,
+                    "confidence_level": result.confidence_level
+                }
+            )
+
+            # 完成
+            progress.setLabelText("✅ 计算完成！")
+            progress.setValue(100)
+            QApplication.processEvents()
+
+            # 短暂延迟以显示完成状态
+            import time
+            time.sleep(0.5)
+            progress.close()
+
+            # 显示计算结果对话框
+            self._show_epochs_calculation_result(result, dataset_info, model_type, user_preference)
+
+        except Exception as e:
+            # 关闭进度对话框
+            if 'progress' in locals():
+                progress.close()
+
+            logger.error(f"智能计算训练轮数失败: {str(e)}")
+
+            # 根据错误类型提供不同的错误信息
+            error_msg = "智能计算过程中发生错误"
+            suggestions = []
+
+            if "yaml" in str(e).lower() or "配置" in str(e):
+                error_msg = "数据集配置文件解析失败"
+                suggestions = [
+                    "• 检查YAML文件格式是否正确",
+                    "• 确认包含必要的配置项（train, val, nc, names）",
+                    "• 验证文件编码为UTF-8"
+                ]
+            elif "目录" in str(e) or "路径" in str(e) or "不存在" in str(e):
+                error_msg = "数据集路径访问失败"
+                suggestions = [
+                    "• 检查图片目录是否存在",
+                    "• 确认目录路径配置正确",
+                    "• 验证文件访问权限"
+                ]
+            elif "图片" in str(e) or "文件" in str(e):
+                error_msg = "数据集文件统计失败"
+                suggestions = [
+                    "• 确认图片目录包含有效的图片文件",
+                    "• 检查支持的图片格式（jpg, png, bmp等）",
+                    "• 验证文件完整性"
+                ]
+            else:
+                suggestions = [
+                    "• 请检查数据集配置是否完整",
+                    "• 确认所有必要文件都存在",
+                    "• 尝试重新选择配置文件"
+                ]
+
+            detailed_msg = f"{error_msg}\n\n错误详情：{str(e)}\n\n解决建议：\n" + "\n".join(suggestions)
+
+            QMessageBox.critical(
+                self,
+                "❌ 智能计算失败",
+                detailed_msg
+            )
+
+    def _show_epochs_calculation_result(self, result, dataset_info, model_type, user_preference=None):
+        """显示epochs计算结果对话框"""
+        try:
+            from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+                                       QPushButton, QTextEdit, QGroupBox, QFormLayout)
+
+            dialog = QDialog(self)
+            dialog.setWindowTitle("🧠 智能训练轮数计算结果")
+            dialog.setMinimumSize(600, 500)
+            dialog.setModal(True)
+
+            layout = QVBoxLayout(dialog)
+
+            # 数据集信息组
+            dataset_group = QGroupBox("📊 数据集信息")
+            dataset_layout = QFormLayout(dataset_group)
+            dataset_layout.addRow("训练图片:", QLabel(f"{dataset_info.train_images} 张"))
+            dataset_layout.addRow("验证图片:", QLabel(f"{dataset_info.val_images} 张"))
+            dataset_layout.addRow("总图片数:", QLabel(f"{dataset_info.total_images} 张"))
+            dataset_layout.addRow("类别数量:", QLabel(f"{dataset_info.num_classes} 类"))
+            dataset_layout.addRow("模型类型:", QLabel(model_type))
+            layout.addWidget(dataset_group)
+
+            # 用户偏好信息组（如果有的话）
+            if user_preference:
+                preference_group = QGroupBox("👤 用户偏好记录")
+                preference_layout = QFormLayout(preference_group)
+                preference_layout.addRow("上次使用轮数:", QLabel(f"{user_preference['preferred_epochs']}"))
+                if user_preference.get('last_adjustment_reason'):
+                    preference_layout.addRow("调整原因:", QLabel(user_preference['last_adjustment_reason']))
+                if user_preference.get('last_adjustment_time'):
+                    preference_layout.addRow("调整时间:", QLabel(user_preference['last_adjustment_time']))
+                layout.addWidget(preference_group)
+
+            # 计算结果组
+            result_group = QGroupBox("🎯 计算结果")
+            result_layout = QFormLayout(result_group)
+
+            # 推荐轮数（高亮显示）
+            recommended_label = QLabel(f"{result.recommended_epochs}")
+            recommended_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #2ecc71;")
+            result_layout.addRow("推荐轮数:", recommended_label)
+
+            result_layout.addRow("建议范围:", QLabel(f"{result.min_epochs} - {result.max_epochs}"))
+
+            # 置信度显示
+            confidence_color = {"高": "#2ecc71", "中": "#f39c12", "低": "#e74c3c"}
+            confidence_label = QLabel(result.confidence_level)
+            confidence_label.setStyleSheet(f"color: {confidence_color.get(result.confidence_level, '#333')};")
+            result_layout.addRow("置信度:", confidence_label)
+
+            layout.addWidget(result_group)
+
+            # 计算依据
+            basis_group = QGroupBox("📋 计算依据")
+            basis_layout = QVBoxLayout(basis_group)
+            basis_text = QTextEdit()
+            basis_text.setMaximumHeight(120)
+            basis_text.setPlainText("\n".join(result.calculation_basis))
+            basis_text.setReadOnly(True)
+            basis_layout.addWidget(basis_text)
+            layout.addWidget(basis_group)
+
+            # 建议和注意事项
+            if result.additional_notes:
+                notes_group = QGroupBox("💡 建议和注意事项")
+                notes_layout = QVBoxLayout(notes_group)
+                notes_text = QTextEdit()
+                notes_text.setMaximumHeight(100)
+                notes_text.setPlainText("\n".join(result.additional_notes))
+                notes_text.setReadOnly(True)
+                notes_layout.addWidget(notes_text)
+                layout.addWidget(notes_group)
+
+            # 按钮
+            buttons_layout = QHBoxLayout()
+
+            # 应用推荐值按钮
+            apply_btn = QPushButton("✅ 应用推荐值")
+            apply_btn.clicked.connect(lambda: self._apply_recommended_epochs(result.recommended_epochs, dialog))
+            buttons_layout.addWidget(apply_btn)
+
+            # 应用最小值按钮
+            apply_min_btn = QPushButton("📉 应用最小值")
+            apply_min_btn.clicked.connect(lambda: self._apply_recommended_epochs(result.min_epochs, dialog))
+            buttons_layout.addWidget(apply_min_btn)
+
+            # 应用最大值按钮
+            apply_max_btn = QPushButton("📈 应用最大值")
+            apply_max_btn.clicked.connect(lambda: self._apply_recommended_epochs(result.max_epochs, dialog))
+            buttons_layout.addWidget(apply_max_btn)
+
+            buttons_layout.addStretch()
+
+            # 关闭按钮
+            close_btn = QPushButton("关闭")
+            close_btn.clicked.connect(dialog.accept)
+            buttons_layout.addWidget(close_btn)
+
+            layout.addLayout(buttons_layout)
+
+            dialog.exec_()
+
+        except Exception as e:
+            logger.error(f"显示计算结果对话框失败: {str(e)}")
+
+    def _apply_recommended_epochs(self, epochs_value, dialog):
+        """应用推荐的训练轮数"""
+        try:
+            if hasattr(self, 'epochs_spin'):
+                original_value = self.epochs_spin.value()
+                self.epochs_spin.setValue(epochs_value)
+
+                # 如果用户调整了值，保存调整记录
+                if original_value != epochs_value and hasattr(self, 'dataset_config_edit'):
+                    config_path = self.dataset_config_edit.text().strip()
+                    if config_path:
+                        reason = "应用智能计算推荐值"
+                        self.training_config_manager.save_user_adjustment(
+                            config_path, original_value, epochs_value, reason)
+
+                dialog.accept()
+
+                # 显示成功消息
+                from PyQt5.QtWidgets import QMessageBox
+                QMessageBox.information(self, "成功", f"已应用训练轮数：{epochs_value}")
+
+        except Exception as e:
+            logger.error(f"应用推荐轮数失败: {str(e)}")
+
+    def show_smart_epochs_help(self):
+        """显示智能epochs计算器帮助对话框"""
+        try:
+            from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+                                       QPushButton, QTextEdit, QTabWidget, QWidget,
+                                       QScrollArea)
+            from PyQt5.QtCore import Qt
+
+            dialog = QDialog(self)
+            dialog.setWindowTitle("🧠 智能训练轮数计算器 - 使用帮助")
+            dialog.setMinimumSize(800, 600)
+            dialog.setModal(True)
+
+            layout = QVBoxLayout(dialog)
+
+            # 创建标签页
+            tab_widget = QTabWidget()
+
+            # 概述标签页
+            overview_tab = QWidget()
+            overview_layout = QVBoxLayout(overview_tab)
+
+            overview_text = QTextEdit()
+            overview_text.setReadOnly(True)
+            overview_text.setHtml("""
+            <h2>🧠 智能训练轮数计算器</h2>
+            <p>这是一个创新功能，能够根据您的数据集特征自动计算推荐的YOLO模型训练轮数。</p>
+
+            <h3>✨ 主要功能</h3>
+            <ul>
+                <li><b>智能分析</b>：分析数据集大小、模型复杂度、类别数量等因素</li>
+                <li><b>精准推荐</b>：提供推荐轮数和合理范围</li>
+                <li><b>置信度评估</b>：评估推荐结果的可靠程度</li>
+                <li><b>记忆功能</b>：记住您的调整偏好</li>
+            </ul>
+
+            <h3>🎯 使用场景</h3>
+            <ul>
+                <li>初次训练YOLO模型，不确定合适的轮数</li>
+                <li>想要优化训练效果，避免过拟合或训练不足</li>
+                <li>处理不同大小的数据集，需要差异化策略</li>
+                <li>希望基于科学算法而非经验猜测</li>
+            </ul>
+            """)
+            overview_layout.addWidget(overview_text)
+            tab_widget.addTab(overview_tab, "📖 概述")
+
+            # 使用方法标签页
+            usage_tab = QWidget()
+            usage_layout = QVBoxLayout(usage_tab)
+
+            usage_text = QTextEdit()
+            usage_text.setReadOnly(True)
+            usage_text.setHtml("""
+            <h3>📋 使用步骤</h3>
+            <ol>
+                <li><b>准备数据集</b>：确保有完整的YOLO数据集和data.yaml配置文件</li>
+                <li><b>选择配置</b>：点击"📁"按钮选择data.yaml文件</li>
+                <li><b>智能计算</b>：点击训练轮数旁的"🧠"按钮</li>
+                <li><b>查看结果</b>：查看推荐轮数、置信度和计算依据</li>
+                <li><b>应用结果</b>：选择应用推荐值或手动调整</li>
+            </ol>
+
+            <h3>⚙️ 计算因素</h3>
+            <ul>
+                <li><b>数据集大小</b>：图片数量越少，需要更多轮数</li>
+                <li><b>模型复杂度</b>：YOLOv8n需要更多轮数，YOLOv8x需要较少轮数</li>
+                <li><b>类别数量</b>：类别越多，通常需要更多轮数</li>
+                <li><b>数据质量</b>：训练/验证比例影响推荐轮数</li>
+                <li><b>批次大小</b>：影响每轮的学习效果</li>
+            </ul>
+
+            <h3>📊 结果解读</h3>
+            <ul>
+                <li><b>高置信度</b>：可直接使用推荐值</li>
+                <li><b>中置信度</b>：建议在推荐范围内调整</li>
+                <li><b>低置信度</b>：需要结合经验手动调整</li>
+            </ul>
+            """)
+            usage_layout.addWidget(usage_text)
+            tab_widget.addTab(usage_tab, "🚀 使用方法")
+
+            # 算法原理标签页
+            algorithm_tab = QWidget()
+            algorithm_layout = QVBoxLayout(algorithm_tab)
+
+            algorithm_text = QTextEdit()
+            algorithm_text.setReadOnly(True)
+            algorithm_text.setHtml("""
+            <h3>🔬 计算原理</h3>
+            <p>智能计算器使用多因素加权算法：</p>
+            <p><code>最终轮数 = 基础轮数 × 模型系数 × 类别系数 × 质量系数 × 批次系数</code></p>
+
+            <h4>数据集大小分类</h4>
+            <ul>
+                <li><b>极小数据集</b>（&lt;100张）：基础轮数 200</li>
+                <li><b>小数据集</b>（100-800张）：基础轮数 150</li>
+                <li><b>中等数据集</b>（800-3000张）：基础轮数 100</li>
+                <li><b>大数据集</b>（3000-10000张）：基础轮数 80</li>
+                <li><b>超大数据集</b>（&gt;10000张）：基础轮数 60</li>
+            </ul>
+
+            <h4>模型复杂度系数</h4>
+            <ul>
+                <li><b>YOLOv8n</b>：0.8（需要更多轮数）</li>
+                <li><b>YOLOv8s</b>：1.0（基准）</li>
+                <li><b>YOLOv8m</b>：1.2</li>
+                <li><b>YOLOv8l</b>：1.4</li>
+                <li><b>YOLOv8x</b>：1.6（需要较少轮数）</li>
+            </ul>
+
+            <h4>其他调整因素</h4>
+            <ul>
+                <li><b>类别数量</b>：1-5类（×0.9），6-20类（×1.0），&gt;20类（×1.2）</li>
+                <li><b>数据质量</b>：训练比例&lt;60%（×1.3），&gt;90%（×0.8）</li>
+                <li><b>批次大小</b>：每轮迭代&lt;10次（×1.5），&gt;100次（×0.8）</li>
+            </ul>
+            """)
+            algorithm_layout.addWidget(algorithm_text)
+            tab_widget.addTab(algorithm_tab, "🔬 算法原理")
+
+            # 常见问题标签页
+            faq_tab = QWidget()
+            faq_layout = QVBoxLayout(faq_tab)
+
+            faq_text = QTextEdit()
+            faq_text.setReadOnly(True)
+            faq_text.setHtml("""
+            <h3>❓ 常见问题</h3>
+
+            <h4>Q: 为什么推荐轮数很高？</h4>
+            <p>A: 可能原因：数据集较小、选择了小模型、类别数量多。建议检查数据集大小，考虑数据增强。</p>
+
+            <h4>Q: 置信度为"低"怎么办？</h4>
+            <p>A: 低置信度通常表示数据集过小或分布不均。建议改善数据集质量，或结合经验手动设置。</p>
+
+            <h4>Q: 可以忽略推荐结果吗？</h4>
+            <p>A: 当然可以！推荐结果仅供参考，您可以根据实际情况手动调整。</p>
+
+            <h4>Q: 如何重置用户偏好？</h4>
+            <p>A: 删除configs/training_preferences.json文件即可重置所有偏好设置。</p>
+
+            <h3>💡 最佳实践</h3>
+            <ul>
+                <li><b>数据集准备</b>：建议至少100张图片，推荐500张以上</li>
+                <li><b>数据分布</b>：训练集70-80%，验证集20-30%</li>
+                <li><b>模型选择</b>：数据集小选择小模型，数据集大可选择大模型</li>
+                <li><b>批次大小</b>：根据GPU内存调整，通常16-32</li>
+            </ul>
+            """)
+            faq_layout.addWidget(faq_text)
+            tab_widget.addTab(faq_tab, "❓ 常见问题")
+
+            layout.addWidget(tab_widget)
+
+            # 按钮
+            buttons_layout = QHBoxLayout()
+            buttons_layout.addStretch()
+
+            close_btn = QPushButton("关闭")
+            close_btn.clicked.connect(dialog.accept)
+            buttons_layout.addWidget(close_btn)
+
+            layout.addLayout(buttons_layout)
+
+            dialog.exec_()
+
+        except Exception as e:
+            logger.error(f"显示帮助对话框失败: {str(e)}")
 
     def _switch_to_training_monitor(self):
         """切换到训练监控标签页"""

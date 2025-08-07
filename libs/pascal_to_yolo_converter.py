@@ -4,6 +4,7 @@ import os
 import shutil
 import random
 import yaml
+import json
 from xml.etree import ElementTree
 from libs.constants import DEFAULT_ENCODING
 from libs.class_manager import ClassConfigManager
@@ -30,6 +31,7 @@ class PascalToYOLOConverter:
         self.dataset_name = dataset_name
         self.train_ratio = train_ratio
         self.use_class_config = use_class_config
+        self.annotation_format = None  # 将在scan_annotations中设置
 
         # 数据集路径
         self.dataset_path = os.path.join(target_dir, dataset_name)
@@ -230,9 +232,13 @@ class PascalToYOLOConverter:
             return {'integrity_passed': False, 'error': str(e)}
 
     def scan_annotations(self):
-        """扫描源目录中的XML标注文件"""
-        xml_files = []
+        """扫描源目录中的标注文件（支持XML和JSON格式）"""
+        annotation_files = []
         image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif']
+
+        # 首先查找XML文件
+        xml_files = []
+        json_files = []
 
         for file in os.listdir(self.source_dir):
             if file.lower().endswith('.xml'):
@@ -250,7 +256,35 @@ class PascalToYOLOConverter:
                 if image_file:
                     xml_files.append((file, image_file))
 
-        return xml_files
+            elif file.lower().endswith('.json'):
+                # 检查是否有对应的图片文件
+                base_name = os.path.splitext(file)[0]
+                image_file = None
+
+                for ext in image_extensions:
+                    potential_image = os.path.join(
+                        self.source_dir, base_name + ext)
+                    if os.path.exists(potential_image):
+                        image_file = base_name + ext
+                        break
+
+                if image_file:
+                    json_files.append((file, image_file))
+
+        # 优先使用XML文件，如果没有XML文件则使用JSON文件
+        if xml_files:
+            annotation_files = xml_files
+            self.annotation_format = "XML"
+            print(f"📄 找到 {len(xml_files)} 个XML标注文件")
+        elif json_files:
+            annotation_files = json_files
+            self.annotation_format = "JSON"
+            print(f"📄 找到 {len(json_files)} 个JSON标注文件")
+        else:
+            self.annotation_format = None
+            print("❌ 未找到任何标注文件")
+
+        return annotation_files
 
     def parse_xml_annotation(self, xml_path):
         """解析Pascal VOC XML标注文件"""
@@ -316,6 +350,85 @@ class PascalToYOLOConverter:
 
         except Exception as e:
             print(f"Error parsing XML file {xml_path}: {e}")
+            return None, None, None
+
+    def parse_json_annotation(self, json_path, image_filename):
+        """解析CreateML JSON标注文件"""
+        try:
+            with open(json_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            # 找到对应图片的标注数据
+            image_data = None
+            for item in data:
+                if item.get('image') == image_filename:
+                    image_data = item
+                    break
+
+            if not image_data:
+                print(f"Warning: No annotation found for image {image_filename} in {json_path}")
+                return None, None, None
+
+            # 获取图片尺寸（需要从实际图片文件获取）
+            image_path = os.path.join(self.source_dir, image_filename)
+            try:
+                # 尝试使用PIL
+                try:
+                    from PIL import Image
+                    with Image.open(image_path) as img:
+                        width, height = img.size
+                except ImportError:
+                    # 如果PIL不可用，尝试使用OpenCV
+                    try:
+                        import cv2
+                        img = cv2.imread(image_path)
+                        height, width = img.shape[:2]
+                    except ImportError:
+                        # 如果都不可用，尝试使用PyQt5
+                        from PyQt5.QtGui import QImage
+                        img = QImage(image_path)
+                        width, height = img.width(), img.height()
+            except Exception as e:
+                print(f"Error getting image size for {image_path}: {e}")
+                return None, None, None
+
+            # 解析标注对象
+            objects = []
+            for annotation in image_data.get('annotations', []):
+                label = annotation['label']
+                coords = annotation['coordinates']
+
+                # CreateML格式使用中心点坐标和宽高
+                center_x = coords['x']
+                center_y = coords['y']
+                bbox_width = coords['width']
+                bbox_height = coords['height']
+
+                # 转换为边界框坐标
+                xmin = center_x - bbox_width / 2
+                ymin = center_y - bbox_height / 2
+                xmax = center_x + bbox_width / 2
+                ymax = center_y + bbox_height / 2
+
+                # 获取类别ID
+                if label in self.classes:
+                    class_id = self.classes.index(label)
+                else:
+                    print(f"Warning: Unknown class '{label}' in {json_path}")
+                    continue
+
+                # 转换为YOLO格式 (中心点坐标和相对尺寸)
+                x_center = (xmin + xmax) / 2.0 / width
+                y_center = (ymin + ymax) / 2.0 / height
+                rel_width = (xmax - xmin) / width
+                rel_height = (ymax - ymin) / height
+
+                objects.append((class_id, x_center, y_center, rel_width, rel_height))
+
+            return width, height, objects
+
+        except Exception as e:
+            print(f"Error parsing JSON file {json_path}: {e}")
             return None, None, None
 
     def write_yolo_annotation(self, objects, output_path):
@@ -401,17 +514,17 @@ class PascalToYOLOConverter:
             if progress_callback:
                 progress_callback(5, 100, "扫描标注文件...")
 
-            xml_files = self.scan_annotations()
-            if not xml_files:
+            annotation_files = self.scan_annotations()
+            if not annotation_files:
                 raise Exception("未找到有效的标注文件")
 
-            self.total_files = len(xml_files)
+            self.total_files = len(annotation_files)
 
             # 随机分割训练集和验证集
-            random.shuffle(xml_files)
-            split_index = int(len(xml_files) * self.train_ratio)
-            train_files = xml_files[:split_index]
-            val_files = xml_files[split_index:]
+            random.shuffle(annotation_files)
+            split_index = int(len(annotation_files) * self.train_ratio)
+            train_files = annotation_files[:split_index]
+            val_files = annotation_files[split_index:]
 
             # 处理训练集
             if progress_callback:
@@ -449,7 +562,7 @@ class PascalToYOLOConverter:
             if progress_callback:
                 progress_callback(95, 100, "验证数据完整性...")
 
-            integrity_report = self.verify_conversion_integrity(xml_files)
+            integrity_report = self.verify_conversion_integrity(annotation_files)
             if not integrity_report.get('integrity_passed', False):
                 warning_msg = "⚠️ 数据完整性验证未通过，但转换已完成"
                 print(warning_msg)
@@ -473,13 +586,20 @@ class PascalToYOLOConverter:
         except Exception as e:
             return False, str(e)
 
-    def _process_file(self, xml_file, image_file, is_train=True):
+    def _process_file(self, annotation_file, image_file, is_train=True):
         """处理单个文件"""
-        xml_path = os.path.join(self.source_dir, xml_file)
+        annotation_path = os.path.join(self.source_dir, annotation_file)
         image_path = os.path.join(self.source_dir, image_file)
 
-        # 解析XML标注
-        width, height, objects = self.parse_xml_annotation(xml_path)
+        # 根据文件格式解析标注
+        if annotation_file.lower().endswith('.xml'):
+            width, height, objects = self.parse_xml_annotation(annotation_path)
+        elif annotation_file.lower().endswith('.json'):
+            width, height, objects = self.parse_json_annotation(annotation_path, image_file)
+        else:
+            print(f"Unsupported annotation format: {annotation_file}")
+            return False
+
         if objects is None:
             return False
 
@@ -511,21 +631,32 @@ class PascalToYOLOConverter:
             print("🔍 扫描数据集中的类别...")
             found_classes = set()
 
-            # 扫描所有XML文件获取类别
-            xml_files = self.scan_annotations()
-            for xml_file in xml_files:
-                xml_path = os.path.join(self.source_dir, xml_file)
+            # 扫描所有标注文件获取类别
+            annotation_files = self.scan_annotations()
+            for annotation_file, image_file in annotation_files:
+                annotation_path = os.path.join(self.source_dir, annotation_file)
                 try:
-                    tree = ElementTree.parse(xml_path)
-                    root = tree.getroot()
+                    if annotation_file.lower().endswith('.xml'):
+                        tree = ElementTree.parse(annotation_path)
+                        root = tree.getroot()
 
-                    for obj in root.findall('object'):
-                        name = obj.find('name').text
-                        if name:
-                            found_classes.add(name)
+                        for obj in root.findall('object'):
+                            name = obj.find('name').text
+                            if name:
+                                found_classes.add(name)
+
+                    elif annotation_file.lower().endswith('.json'):
+                        with open(annotation_path, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+
+                        for item in data:
+                            for annotation in item.get('annotations', []):
+                                label = annotation.get('label')
+                                if label:
+                                    found_classes.add(label)
 
                 except Exception as e:
-                    print(f"⚠️ 解析XML文件失败 {xml_file}: {e}")
+                    print(f"⚠️ 解析标注文件失败 {annotation_file}: {e}")
 
             found_classes = sorted(list(found_classes))  # 按字母顺序排序
             print(f"📋 发现类别: {found_classes}")

@@ -1,0 +1,63 @@
+{
+  "epochs": 100,
+  "batch_size": 16,
+  "learning_rate": 0.01,
+  "model_type": "yolov8n",
+  "device": "auto",
+  "user_adjustments": {
+    "data.yaml": [
+      {
+        "dataset_path": "C:\\Users\\11\\AppData\\Local\\Temp\\tmp1yoaptsy\\data.yaml",
+        "original_epochs": 135,
+        "adjusted_epochs": 155,
+        "reason": "用户手动调整测试",
+        "timestamp": "2025-08-05 19:06:28"
+      },
+      {
+        "dataset_path": "D:\\GitHub\\python_labelImg-master\\labelImg-master\\datasets\\training_dataset\\data.yaml",
+        "original_epochs": 155,
+        "adjusted_epochs": 240,
+        "reason": "应用智能计算推荐值",
+        "timestamp": "2025-08-05 19:17:20"
+      }
+    ]
+  },
+  "smart_calc_history": [
+    {
+      "dataset_path": "C:\\Users\\11\\AppData\\Local\\Temp\\tmp1yoaptsy\\data.yaml",
+      "dataset_info": {
+        "total_images": 800,
+        "train_images": 600,
+        "val_images": 200,
+        "num_classes": 5
+      },
+      "recommended_epochs": 135,
+      "confidence_level": "高",
+      "timestamp": "2025-08-05 19:06:28"
+    },
+    {
+      "dataset_path": "D:\\GitHub\\python_labelImg-master\\labelImg-master\\datasets\\training_dataset\\data.yaml",
+      "dataset_info": {
+        "total_images": 90,
+        "train_images": 80,
+        "val_images": 10,
+        "num_classes": 0
+      },
+      "recommended_epochs": 240,
+      "confidence_level": "低",
+      "timestamp": "2025-08-05 19:16:08"
+    },
+    {
+      "dataset_path": "D:\\GitHub\\python_labelImg-master\\labelImg-master\\datasets\\training_dataset\\data.yaml",
+      "dataset_info": {
+        "total_images": 90,
+        "train_images": 80,
+        "val_images": 10,
+        "num_classes": 0
+      },
+      "recommended_epochs": 240,
+      "confidence_level": "低",
+      "timestamp": "2025-08-05 19:16:29"
+    }
+  ]
+}
