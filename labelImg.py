@@ -49,6 +49,8 @@ except ImportError:
 
 from libs.combobox import ComboBox
 from libs.default_label_combobox import DefaultLabelComboBox
+from libs.ui_styles import *
+from libs.ui_styles import ButtonStyles, UIColors, UISpacing, UIRadius, InteractionStyles, StatusIndicatorStyles, SpecialGroupBoxStyles
 from libs.delete_confirmation_dialog import DeleteConfirmationDialog, SimpleDeleteConfirmationDialog
 from libs.resources import *
 from libs.constants import *
@@ -530,17 +532,17 @@ class MainWindow(QMainWindow, WindowMixin):
         self.status_update_timer.timeout.connect(self._do_update_status_bar_info)
         print("[DEBUG] 延迟状态栏更新系统初始化成功")
         
-        # 性能优化：样式缓存系统
+        # 性能优化：样式缓存系统 - 使用统一样式类
         self.style_cache = {
-            'format_status_xml': "QLabel { color: #2e7d32; font-weight: bold; background-color: #e8f5e8; padding: 4px 8px; border-radius: 3px; }",
-            'format_status_json': "QLabel { color: #1565c0; font-weight: bold; background-color: #e3f2fd; padding: 4px 8px; border-radius: 3px; }",
-            'format_status_txt': "QLabel { color: #ef6c00; font-weight: bold; background-color: #fff3e0; padding: 4px 8px; border-radius: 3px; }",
-            'progress_bar_normal': "QProgressBar::chunk { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4caf50, stop:0.5 #66bb6a, stop:1 #81c784); border-radius: 8px; margin: 1px; }",
-            'progress_bar_complete': "QProgressBar::chunk { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2e7d32, stop:0.5 #4caf50, stop:1 #66bb6a); border-radius: 8px; margin: 1px; }",
-            'status_annotated': "QLabel { font-weight: 600; padding: 2px 8px; border-radius: 4px; background-color: #e8f5e8; color: #2e7d32; }",
-            'status_unannotated': "QLabel { font-weight: 600; padding: 2px 8px; border-radius: 4px; background-color: #fff3e0; color: #f57c00; }",
-            'auto_save_enabled': "QLabel { color: #4caf50; font-size: 12px; padding: 4px 8px; background-color: #e8f5e8; border-radius: 4px; border: 1px solid #4caf50; }",
-            'auto_save_disabled': "QLabel { color: #757575; font-size: 12px; padding: 4px 8px; background-color: #f5f5f5; border-radius: 4px; }"
+            'format_status_xml': StatusIndicatorStyles.success_indicator(),
+            'format_status_json': StatusIndicatorStyles.info_indicator(),
+            'format_status_txt': StatusIndicatorStyles.warning_indicator(),
+            'progress_bar_normal': InteractionStyles.animated_progress_bar(),
+            'progress_bar_complete': InteractionStyles.animated_progress_bar(),
+            'status_annotated': StatusIndicatorStyles.success_indicator(),
+            'status_unannotated': StatusIndicatorStyles.warning_indicator(),
+            'auto_save_enabled': StatusIndicatorStyles.success_indicator(),
+            'auto_save_disabled': StatusIndicatorStyles.error_indicator()
         }
         print("[DEBUG] 样式缓存系统初始化成功")
 
@@ -600,62 +602,14 @@ class MainWindow(QMainWindow, WindowMixin):
         # Create clear predefined labels button
         self.clear_labels_button = QPushButton('🗑️ 清空预设标签')
         self.clear_labels_button.setToolTip('清空所有预设标签（危险操作，不可撤销）')
-        self.clear_labels_button.setStyleSheet("""
-            QPushButton {
-                background-color: #ff5722;
-                color: white;
-                border: 2px solid #e64a19;
-                border-radius: 6px;
-                padding: 6px 12px;
-                font-weight: 500;
-                font-size: 11px;
-                min-height: 16px;
-            }
-            QPushButton:hover {
-                background-color: #e64a19;
-                border-color: #d84315;
-                box-shadow: 0 2px 4px rgba(255, 87, 34, 0.3);
-            }
-            QPushButton:pressed {
-                background-color: #d84315;
-                border-color: #bf360c;
-            }
-        """)
+        self.clear_labels_button.setStyleSheet(ButtonStyles.danger_button())
         self.clear_labels_button.clicked.connect(
             self.clear_predefined_classes_with_confirmation)
 
         # Create switch to unannotated image button
         self.switch_unannotated_button = QPushButton('🎯 切换到未标注图片')
         self.switch_unannotated_button.setToolTip('快速跳转到下一张未标注的图片（最常用功能）')
-        self.switch_unannotated_button.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #66bb6a, stop:1 #4caf50);
-                color: white;
-                border: none;
-                border-radius: 8px;
-                padding: 12px 20px;
-                font-weight: 600;
-                font-size: 14px;
-                min-height: 20px;
-                text-align: center;
-            }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #5cb85c, stop:1 #449d44);
-                transform: translateY(-1px);
-                box-shadow: 0 4px 8px rgba(76, 175, 80, 0.3);
-            }
-            QPushButton:pressed {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #449d44, stop:1 #388e3c);
-                transform: translateY(0px);
-            }
-            QPushButton:disabled {
-                background-color: #e0e0e0;
-                color: #9e9e9e;
-            }
-        """)
+        self.switch_unannotated_button.setStyleSheet(ButtonStyles.primary_button())
         self.switch_unannotated_button.clicked.connect(
             self.switch_to_next_unannotated_image)
         # 初始状态下禁用按钮，直到加载图片列表
@@ -670,38 +624,7 @@ class MainWindow(QMainWindow, WindowMixin):
             '• 此操作不可撤销！\n\n'
             '💡 提示：可在工具菜单中重置删除确认设置'
         )
-        self.delete_current_image_button.setStyleSheet("""
-            QPushButton {
-                background-color: #f44336;
-                color: white;
-                border: 2px solid #d32f2f;
-                border-radius: 6px;
-                padding: 8px 16px;
-                font-weight: 600;
-                font-size: 12px;
-                min-height: 20px;
-                transition: all 0.3s ease;
-            }
-            QPushButton:hover {
-                background-color: #d32f2f;
-                border-color: #c62828;
-                box-shadow: 0 4px 8px rgba(244, 67, 54, 0.6);
-                transform: translateY(-1px);
-                font-size: 13px;
-            }
-            QPushButton:pressed {
-                background-color: #c62828;
-                border-color: #b71c1c;
-                box-shadow: 0 2px 4px rgba(244, 67, 54, 0.8);
-                transform: translateY(0px);
-            }
-            QPushButton:disabled {
-                background-color: #e0e0e0;
-                color: #9e9e9e;
-                border-color: #bdbdbd;
-                box-shadow: none;
-            }
-        """)
+        self.delete_current_image_button.setStyleSheet(ButtonStyles.danger_button())
         self.delete_current_image_button.clicked.connect(
             self.delete_current_image)
         # 初始状态下禁用按钮，直到加载图片
@@ -730,24 +653,7 @@ class MainWindow(QMainWindow, WindowMixin):
 
         # 创建主要操作区域（常用功能）
         main_actions_group = QGroupBox("🎯 主要操作")
-        main_actions_group.setStyleSheet("""
-            QGroupBox {
-                background-color: #f8fff8;
-                border: 2px solid #4caf50;
-                border-radius: 8px;
-                margin: 8px 0;
-                padding-top: 16px;
-                font-weight: 600;
-                color: #2e7d32;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 12px;
-                padding: 0 8px;
-                background-color: #f8fff8;
-                color: #2e7d32;
-            }
-        """)
+        main_actions_group.setStyleSheet(SpecialGroupBoxStyles.primary_action_group())
         main_actions_layout = QVBoxLayout(main_actions_group)
         main_actions_layout.setContentsMargins(12, 8, 12, 12)
         main_actions_layout.setSpacing(8)
@@ -763,41 +669,14 @@ class MainWindow(QMainWindow, WindowMixin):
 
         # 创建危险操作区域
         danger_actions_group = QGroupBox("⚠️ 危险操作")
-        danger_actions_group.setStyleSheet("""
-            QGroupBox {
-                background-color: #fff8f0;
-                border: 2px solid #ff9800;
-                border-radius: 8px;
-                margin: 8px 0;
-                padding-top: 16px;
-                font-weight: 600;
-                color: #e65100;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 12px;
-                padding: 0 8px;
-                background-color: #fff8f0;
-                color: #e65100;
-            }
-        """)
+        danger_actions_group.setStyleSheet(SpecialGroupBoxStyles.danger_action_group())
         danger_actions_layout = QVBoxLayout(danger_actions_group)
         danger_actions_layout.setContentsMargins(12, 8, 12, 12)
         danger_actions_layout.setSpacing(6)
 
         # 添加警告提示
         warning_label = QLabel("⚠️ 请谨慎操作，以下操作不可撤销")
-        warning_label.setStyleSheet("""
-            QLabel {
-                color: #e65100;
-                font-size: 11px;
-                font-weight: 500;
-                padding: 4px 8px;
-                background-color: #ffe0b2;
-                border-radius: 4px;
-                margin-bottom: 4px;
-            }
-        """)
+        warning_label.setStyleSheet(StatusIndicatorStyles.warning_indicator())
         danger_actions_layout.addWidget(warning_label)
 
         # 将危险操作按钮放在危险操作区域
@@ -811,21 +690,13 @@ class MainWindow(QMainWindow, WindowMixin):
         self.label_search_box = QLineEdit()
         self.label_search_box.setPlaceholderText('🔍 搜索标签...')
         self.label_search_box.textChanged.connect(self.filter_label_list)
+        self.label_search_box.setStyleSheet(InteractionStyles.animated_input_field())
         label_search_layout.addWidget(self.label_search_box)
         list_layout.addLayout(label_search_layout)
 
         # 添加标签统计信息
         self.label_stats_label = QLabel('📊 标签统计: 0 个')
-        self.label_stats_label.setStyleSheet("""
-            QLabel {
-                color: #757575;
-                font-size: 12px;
-                padding: 4px 8px;
-                background-color: #f5f5f5;
-                border-radius: 4px;
-                margin: 4px 8px;
-            }
-        """)
+        self.label_stats_label.setStyleSheet(LabelStyles.info_label())
         list_layout.addWidget(self.label_stats_label)
 
         # Create and add combobox for showing unique labels in group
@@ -834,33 +705,9 @@ class MainWindow(QMainWindow, WindowMixin):
 
         # Create and add a widget for showing current label items
         self.label_list = QListWidget()
-        self.label_list.setStyleSheet("""
-            QListWidget {
-                background-color: #ffffff;
-                border: 1px solid #e0e0e0;
-                border-radius: 6px;
-                padding: 4px;
-                outline: none;
-            }
-            QListWidget::item {
-                background-color: transparent;
-                border: none;
-                border-radius: 4px;
-                padding: 8px;
-                margin: 2px;
-                color: #424242;
-                border-left: 3px solid transparent;
-            }
-            QListWidget::item:hover {
-                background-color: #f5f5f5;
-                border-left: 3px solid #2196f3;
-            }
-            QListWidget::item:selected {
-                background-color: #e3f2fd;
-                color: #1976d2;
-                border-left: 3px solid #2196f3;
-                font-weight: 500;
-            }
+        self.label_list.setStyleSheet(f"""
+            {ListStyles.modern_list()}
+            {InteractionStyles.animated_list_item()}
         """)
 
         label_list_container = QWidget()
@@ -890,6 +737,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.file_search_box = QLineEdit()
         self.file_search_box.setPlaceholderText('🔍 搜索文件...')
         self.file_search_box.textChanged.connect(self.filter_file_list)
+        self.file_search_box.setStyleSheet(InteractionStyles.animated_input_field())
         file_search_layout.addWidget(self.file_search_box)
 
         file_list_layout = QVBoxLayout()
@@ -1481,35 +1329,13 @@ class MainWindow(QMainWindow, WindowMixin):
 
         # 快速保存按钮
         quick_save_btn = QPushButton('💾 快速保存')
-        quick_save_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #4caf50;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                padding: 8px 16px;
-                font-weight: 500;
-                font-size: 12px;
-                min-width: 80px;
-            }
-            QPushButton:hover {
-                background-color: #388e3c;
-            }
-        """)
+        quick_save_btn.setStyleSheet(ButtonStyles.primary_button())
         quick_save_btn.clicked.connect(self.save_file)
         layout.addWidget(quick_save_btn)
 
         # 自动保存状态指示器
         self.auto_save_indicator = QLabel('🔄 自动保存: 关闭')
-        self.auto_save_indicator.setStyleSheet("""
-            QLabel {
-                color: #757575;
-                font-size: 12px;
-                padding: 4px 8px;
-                background-color: #f5f5f5;
-                border-radius: 4px;
-            }
-        """)
+        self.auto_save_indicator.setStyleSheet(StatusIndicatorStyles.error_indicator())
         layout.addWidget(self.auto_save_indicator)
 
         # 分隔符
@@ -1527,19 +1353,7 @@ class MainWindow(QMainWindow, WindowMixin):
 
         self.format_combo = QComboBox()
         self.format_combo.addItems(['PASCAL VOC', 'YOLO', 'CreateML'])
-        self.format_combo.setStyleSheet("""
-            QComboBox {
-                background-color: white;
-                border: 1px solid #e0e0e0;
-                border-radius: 4px;
-                padding: 4px 8px;
-                min-width: 100px;
-                font-size: 12px;
-            }
-            QComboBox:hover {
-                border-color: #2196f3;
-            }
-        """)
+        self.format_combo.setStyleSheet(InteractionStyles.animated_combobox())
         # 连接格式下拉框变更事件
         self.format_combo.currentTextChanged.connect(self.on_format_combo_changed)
         layout.addWidget(self.format_combo)
@@ -1550,38 +1364,12 @@ class MainWindow(QMainWindow, WindowMixin):
         # 进度条
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #e0e0e0;
-                border-radius: 4px;
-                text-align: center;
-                font-size: 11px;
-                background-color: #f5f5f5;
-            }
-            QProgressBar::chunk {
-                background-color: #2196f3;
-                border-radius: 3px;
-            }
-        """)
+        self.progress_bar.setStyleSheet(InteractionStyles.animated_progress_bar())
         layout.addWidget(self.progress_bar)
 
         # 帮助按钮
         help_btn = QPushButton('❓ 帮助')
-        help_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #ff9800;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                padding: 8px 16px;
-                font-weight: 500;
-                font-size: 12px;
-                min-width: 60px;
-            }
-            QPushButton:hover {
-                background-color: #f57c00;
-            }
-        """)
+        help_btn.setStyleSheet(ButtonStyles.secondary_button())
         help_btn.clicked.connect(self.show_help_dialog)
         layout.addWidget(help_btn)
 
@@ -1783,23 +1571,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.annotation_progress_bar.setMaximumWidth(150)
         self.annotation_progress_bar.setMinimumHeight(20)
         self.annotation_progress_bar.setMaximumHeight(20)
-        self.annotation_progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 2px solid #1976d2;
-                border-radius: 10px;
-                text-align: center;
-                font-size: 11px;
-                font-weight: 700;
-                color: #1976d2;
-                background-color: #f5f5f5;
-            }
-            QProgressBar::chunk {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #4caf50, stop:0.5 #66bb6a, stop:1 #81c784);
-                border-radius: 8px;
-                margin: 1px;
-            }
-        """)
+        self.annotation_progress_bar.setStyleSheet(InteractionStyles.animated_progress_bar())
         status_bar.addPermanentWidget(self.annotation_progress_bar)
 
         # 当前图片状态指示器
@@ -2033,12 +1805,10 @@ class MainWindow(QMainWindow, WindowMixin):
         # 更新当前图片状态指示器 - 使用缓存样式
         if stats["current_annotated"]:
             self.current_image_status.setText('✅ 已标注')
-            if hasattr(self, 'style_cache'):
-                self.current_image_status.setStyleSheet(self.style_cache['status_annotated'])
+            self.current_image_status.setStyleSheet(StatusIndicatorStyles.success_indicator())
         else:
             self.current_image_status.setText('⚪ 未标注')
-            if hasattr(self, 'style_cache'):
-                self.current_image_status.setStyleSheet(self.style_cache['status_unannotated'])
+            self.current_image_status.setStyleSheet(StatusIndicatorStyles.warning_indicator())
 
         # 更新位置信息
         self.position_label.setText(f'📊 位置: {stats["current_index"]}/{stats["total"]}')
@@ -2047,12 +1817,10 @@ class MainWindow(QMainWindow, WindowMixin):
         if hasattr(self, 'auto_save_indicator'):
             if hasattr(self, 'auto_saving') and self.auto_saving.isChecked():
                 self.auto_save_indicator.setText('✅ 自动保存: 开启')
-                if hasattr(self, 'style_cache'):
-                    self.auto_save_indicator.setStyleSheet(self.style_cache['auto_save_enabled'])
+                self.auto_save_indicator.setStyleSheet(StatusIndicatorStyles.success_indicator())
             else:
                 self.auto_save_indicator.setText('❌ 自动保存: 关闭')
-                if hasattr(self, 'style_cache'):
-                    self.auto_save_indicator.setStyleSheet(self.style_cache['auto_save_disabled'])
+                self.auto_save_indicator.setStyleSheet(StatusIndicatorStyles.error_indicator())
         
         print("[PERF] 状态栏更新完成")
 
@@ -2139,28 +1907,13 @@ class MainWindow(QMainWindow, WindowMixin):
 
         # 主标题
         title_label = QLabel('🏷️ labelImg 标注工具')
-        title_label.setStyleSheet("""
-            QLabel {
-                font-size: 36px;
-                font-weight: bold;
-                color: #1976d2;
-                background: transparent;
-                margin: 20px;
-            }
-        """)
+        title_label.setStyleSheet(LabelStyles.title_label())
         title_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(title_label)
 
         # 副标题
         subtitle_label = QLabel('现代化的图像标注工具，支持多种格式')
-        subtitle_label.setStyleSheet("""
-            QLabel {
-                font-size: 16px;
-                color: #424242;
-                background: transparent;
-                margin: 10px;
-            }
-        """)
+        subtitle_label.setStyleSheet(LabelStyles.subtitle_label())
         subtitle_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(subtitle_label)
 
@@ -2172,41 +1925,13 @@ class MainWindow(QMainWindow, WindowMixin):
 
         # 打开图片按钮
         open_image_btn = QPushButton('📁 打开图片')
-        open_image_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #2196f3;
-                color: white;
-                border: none;
-                border-radius: 8px;
-                padding: 15px 30px;
-                font-size: 14px;
-                font-weight: 600;
-                min-width: 120px;
-            }
-            QPushButton:hover {
-                background-color: #1976d2;
-            }
-        """)
+        open_image_btn.setStyleSheet(ButtonStyles.primary_button())
         open_image_btn.clicked.connect(self.open_file)
         button_layout.addWidget(open_image_btn)
 
         # 打开文件夹按钮
         open_dir_btn = QPushButton('📂 打开文件夹')
-        open_dir_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #4caf50;
-                color: white;
-                border: none;
-                border-radius: 8px;
-                padding: 15px 30px;
-                font-size: 14px;
-                font-weight: 600;
-                min-width: 120px;
-            }
-            QPushButton:hover {
-                background-color: #388e3c;
-            }
-        """)
+        open_dir_btn.setStyleSheet(ButtonStyles.primary_button())
         open_dir_btn.clicked.connect(self.open_dir_dialog)
         button_layout.addWidget(open_dir_btn)
 
@@ -2218,15 +1943,7 @@ class MainWindow(QMainWindow, WindowMixin):
         features_layout = QVBoxLayout(features_widget)
 
         features_title = QLabel('✨ 主要功能')
-        features_title.setStyleSheet("""
-            QLabel {
-                font-size: 18px;
-                font-weight: 600;
-                color: #1976d2;
-                background: transparent;
-                margin: 20px 0 10px 0;
-            }
-        """)
+        features_title.setStyleSheet(LabelStyles.section_title())
         features_title.setAlignment(Qt.AlignCenter)
         features_layout.addWidget(features_title)
 
@@ -2241,14 +1958,7 @@ class MainWindow(QMainWindow, WindowMixin):
 
         for feature in features:
             feature_label = QLabel(feature)
-            feature_label.setStyleSheet("""
-                QLabel {
-                    font-size: 14px;
-                    color: #424242;
-                    background: transparent;
-                    padding: 5px;
-                }
-            """)
+            feature_label.setStyleSheet(LabelStyles.feature_item())
             feature_label.setAlignment(Qt.AlignCenter)
             features_layout.addWidget(feature_label)
 
