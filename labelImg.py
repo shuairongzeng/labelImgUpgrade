@@ -28,6 +28,7 @@ import os.path
 import platform
 import shutil
 import sys
+import time
 import webbrowser as wb
 from functools import partial
 
@@ -512,6 +513,36 @@ class MainWindow(QMainWindow, WindowMixin):
         except Exception as e:
             print(f"[WARNING] 类别配置管理器初始化失败: {e}")
             self.class_manager = None
+            
+        # 性能优化：标注状态缓存系统
+        self.annotation_cache = {}  # 缓存 {image_path: is_annotated}
+        self.cache_dirty = True     # 标记缓存是否需要重建
+        self.annotation_stats_cache = {
+            'total': 0,
+            'annotated': 0,
+            'cache_valid': False
+        }
+        print("[DEBUG] 标注状态缓存系统初始化成功")
+        
+        # 性能优化：延迟状态栏更新系统
+        self.status_update_timer = QTimer()
+        self.status_update_timer.setSingleShot(True)
+        self.status_update_timer.timeout.connect(self._do_update_status_bar_info)
+        print("[DEBUG] 延迟状态栏更新系统初始化成功")
+        
+        # 性能优化：样式缓存系统
+        self.style_cache = {
+            'format_status_xml': "QLabel { color: #2e7d32; font-weight: bold; background-color: #e8f5e8; padding: 4px 8px; border-radius: 3px; }",
+            'format_status_json': "QLabel { color: #1565c0; font-weight: bold; background-color: #e3f2fd; padding: 4px 8px; border-radius: 3px; }",
+            'format_status_txt': "QLabel { color: #ef6c00; font-weight: bold; background-color: #fff3e0; padding: 4px 8px; border-radius: 3px; }",
+            'progress_bar_normal': "QProgressBar::chunk { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4caf50, stop:0.5 #66bb6a, stop:1 #81c784); border-radius: 8px; margin: 1px; }",
+            'progress_bar_complete': "QProgressBar::chunk { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2e7d32, stop:0.5 #4caf50, stop:1 #66bb6a); border-radius: 8px; margin: 1px; }",
+            'status_annotated': "QLabel { font-weight: 600; padding: 2px 8px; border-radius: 4px; background-color: #e8f5e8; color: #2e7d32; }",
+            'status_unannotated': "QLabel { font-weight: 600; padding: 2px 8px; border-radius: 4px; background-color: #fff3e0; color: #f57c00; }",
+            'auto_save_enabled': "QLabel { color: #4caf50; font-size: 12px; padding: 4px 8px; background-color: #e8f5e8; border-radius: 4px; border: 1px solid #4caf50; }",
+            'auto_save_disabled': "QLabel { color: #757575; font-size: 12px; padding: 4px 8px; background-color: #f5f5f5; border-radius: 4px; }"
+        }
+        print("[DEBUG] 样式缓存系统初始化成功")
 
         # Store predefined classes file path for saving
         print(f"[DEBUG] 初始化预设类文件路径...")
@@ -1839,7 +1870,26 @@ class MainWindow(QMainWindow, WindowMixin):
         print(f"[DEBUG] 最终确保状态栏可见: {status_bar.isVisible()}")
 
     def update_status_bar_info(self):
-        """更新状态栏信息"""
+        """
+        更新状态栏信息（性能优化版：延迟执行，防抖动）
+        频繁调用时只执行最后一次，避免不必要的UI更新
+        """
+        # 取消之前的延迟更新请求
+        if hasattr(self, 'status_update_timer') and self.status_update_timer.isActive():
+            self.status_update_timer.stop()
+        
+        # 启动新的延迟更新（100ms后执行）
+        if hasattr(self, 'status_update_timer'):
+            self.status_update_timer.start(100)  # 100ms延迟
+        else:
+            # 如果定时器还未初始化，直接执行（兼容性）
+            self._do_update_status_bar_info()
+
+    def _do_update_status_bar_info(self):
+        """
+        实际执行状态栏更新（延迟执行版本）
+        这是原来 update_status_bar_info 的重命名版本
+        """
         # 更新图片信息
         if hasattr(self, 'image') and not self.image.isNull():
             width, height = self.image.width(), self.image.height()
@@ -1868,7 +1918,7 @@ class MainWindow(QMainWindow, WindowMixin):
 
             self.zoom_info_label.setText(zoom_text)
 
-        # 更新详细的标注进度信息
+        # 使用缓存的统计信息（性能优化）
         stats = self.calculate_annotation_statistics()
 
         # 更新进度标签（优化显示格式）
@@ -1878,123 +1928,133 @@ class MainWindow(QMainWindow, WindowMixin):
             progress_text = '📈 暂无图片'
         self.annotation_progress_label.setText(progress_text)
 
-        # 设置详细的工具提示（增强版）
-        if stats["total"] > 0:
-            remaining = stats["unannotated"]
-            completion_rate = stats["percentage"]
+        # 性能优化：智能工具提示缓存系统
+        # 只有当统计数据真正改变时才重建工具提示
+        tooltip_cache_key = f"{stats['annotated']}_{stats['total']}_{stats['current_index']}_{stats['current_annotated']}"
+        if not hasattr(self, '_tooltip_cache_key') or self._tooltip_cache_key != tooltip_cache_key:
+            self._tooltip_cache_key = tooltip_cache_key
+            if stats["total"] > 0:
+                remaining = stats["unannotated"]
+                completion_rate = stats["percentage"]
 
-            # 创建更丰富的工具提示
-            tooltip_text = (
-                f'📊 标注进度详细统计\n'
-                f'{"="*30}\n\n'
-                f'✅ 已标注图片: {stats["annotated"]} 张\n'
-                f'⚪ 未标注图片: {stats["unannotated"]} 张\n'
-                f'📁 图片总数: {stats["total"]} 张\n'
-                f'📈 完成进度: {completion_rate:.1f}%\n\n'
-                f'🎯 当前位置: 第 {stats["current_index"]} 张\n'
-                f'📍 当前状态: {"✅ 已标注" if stats["current_annotated"] else "⚪ 未标注"}\n\n'
-            )
+                # 创建更丰富的工具提示
+                self._cached_tooltip = (
+                    f'📊 标注进度详细统计\n'
+                    f'{"="*30}\n\n'
+                    f'✅ 已标注图片: {stats["annotated"]} 张\n'
+                    f'⚪ 未标注图片: {stats["unannotated"]} 张\n'
+                    f'📁 图片总数: {stats["total"]} 张\n'
+                    f'📈 完成进度: {completion_rate:.1f}%\n\n'
+                    f'🎯 当前位置: 第 {stats["current_index"]} 张\n'
+                    f'📍 当前状态: {"✅ 已标注" if stats["current_annotated"] else "⚪ 未标注"}\n\n'
+                )
 
-            if remaining > 0:
-                tooltip_text += f'💡 提示: 还需标注 {remaining} 张图片才能完成'
-                if completion_rate > 50:
-                    tooltip_text += f'\n🎯 加油！已经完成了一半以上'
+                if remaining > 0:
+                    self._cached_tooltip += f'💡 提示: 还需标注 {remaining} 张图片才能完成'
+                    if completion_rate > 50:
+                        self._cached_tooltip += f'\n🎯 加油！已经完成了一半以上'
+                else:
+                    self._cached_tooltip += f'🎉 恭喜！所有图片都已标注完成\n✨ 可以开始训练模型了'
             else:
-                tooltip_text += f'🎉 恭喜！所有图片都已标注完成\n✨ 可以开始训练模型了'
-        else:
-            tooltip_text = (
-                f'📂 尚未加载图片\n'
-                f'{"="*20}\n\n'
-                f'💡 请先打开图片目录\n'
-                f'📁 文件 → 打开目录'
-            )
+                self._cached_tooltip = (
+                    f'📂 尚未加载图片\n'
+                    f'{"="*20}\n\n'
+                    f'💡 请先打开图片目录\n'
+                    f'📁 文件 → 打开目录'
+                )
 
-        self.annotation_progress_label.setToolTip(tooltip_text)
+        self.annotation_progress_label.setToolTip(self._cached_tooltip)
 
-        # 更新进度条
-        self.annotation_progress_bar.setValue(int(stats["percentage"]))
+        # 更新进度条 - 使用动态样式缓存
+        progress_percentage = int(stats["percentage"])
+        self.annotation_progress_bar.setValue(progress_percentage)
         self.annotation_progress_bar.setFormat(f'{stats["percentage"]:.1f}%')
-
-        # 为进度条设置工具提示
-        if stats["total"] > 0:
-            bar_tooltip = (
-                f'📊 可视化进度条\n'
-                f'{"="*20}\n\n'
-                f'📈 完成进度: {stats["percentage"]:.1f}%\n'
-                f'✅ 已完成: {stats["annotated"]} 张\n'
-                f'⚪ 剩余: {stats["unannotated"]} 张\n'
-                f'📁 总计: {stats["total"]} 张'
-            )
-            if stats["percentage"] == 100:
-                bar_tooltip += f'\n\n🎉 全部完成！'
-            elif stats["percentage"] >= 75:
-                bar_tooltip += f'\n\n🎯 即将完成！'
-            elif stats["percentage"] >= 50:
-                bar_tooltip += f'\n\n💪 已过半程！'
-            elif stats["percentage"] >= 25:
-                bar_tooltip += f'\n\n🚀 进展顺利！'
+        
+        # 根据进度动态选择样式（性能优化：使用缓存）
+        if hasattr(self, 'style_cache'):
+            if progress_percentage >= 100:
+                progress_style_key = 'progress_bar_complete'
             else:
-                bar_tooltip += f'\n\n📝 刚刚开始'
-        else:
-            bar_tooltip = (
-                f'📊 进度条\n'
-                f'{"="*15}\n\n'
-                f'💡 请先加载图片目录'
-            )
-        self.annotation_progress_bar.setToolTip(bar_tooltip)
+                progress_style_key = 'progress_bar_normal'
+            
+            # 只有样式需要改变时才更新（避免不必要的DOM操作）
+            current_style_key = getattr(self, '_current_progress_style', None)
+            if current_style_key != progress_style_key:
+                # 基础样式
+                base_style = """
+                    QProgressBar {
+                        border: 2px solid #1976d2;
+                        border-radius: 10px;
+                        text-align: center;
+                        font-size: 11px;
+                        font-weight: 700;
+                        color: #1976d2;
+                        background-color: #f5f5f5;
+                    }
+                """
+                full_style = base_style + self.style_cache[progress_style_key]
+                self.annotation_progress_bar.setStyleSheet(full_style)
+                self._current_progress_style = progress_style_key
 
-        # 更新当前图片状态指示器
+        # 为进度条设置工具提示（使用缓存优化）
+        bar_tooltip_cache_key = f"bar_{stats['percentage']:.1f}_{stats['total']}"
+        if not hasattr(self, '_bar_tooltip_cache_key') or self._bar_tooltip_cache_key != bar_tooltip_cache_key:
+            self._bar_tooltip_cache_key = bar_tooltip_cache_key
+            
+            if stats["total"] > 0:
+                bar_tooltip = (
+                    f'📊 可视化进度条\n'
+                    f'{"="*20}\n\n'
+                    f'📈 完成进度: {stats["percentage"]:.1f}%\n'
+                    f'✅ 已完成: {stats["annotated"]} 张\n'
+                    f'⚪ 剩余: {stats["unannotated"]} 张\n'
+                    f'📁 总计: {stats["total"]} 张'
+                )
+                if stats["percentage"] == 100:
+                    bar_tooltip += f'\n\n🎉 全部完成！'
+                elif stats["percentage"] >= 75:
+                    bar_tooltip += f'\n\n🎯 即将完成！'
+                elif stats["percentage"] >= 50:
+                    bar_tooltip += f'\n\n💪 已过半程！'
+                elif stats["percentage"] >= 25:
+                    bar_tooltip += f'\n\n🚀 进展顺利！'
+                else:
+                    bar_tooltip += f'\n\n📝 刚刚开始'
+            else:
+                bar_tooltip = (
+                    f'📊 进度条\n'
+                    f'{"="*15}\n\n'
+                    f'💡 请先加载图片目录'
+                )
+            self._cached_bar_tooltip = bar_tooltip
+        
+        self.annotation_progress_bar.setToolTip(self._cached_bar_tooltip)
+
+        # 更新当前图片状态指示器 - 使用缓存样式
         if stats["current_annotated"]:
             self.current_image_status.setText('✅ 已标注')
-            self.current_image_status.setStyleSheet("""
-                QLabel {
-                    font-weight: 600;
-                    padding: 2px 8px;
-                    border-radius: 4px;
-                    background-color: #e8f5e8;
-                    color: #2e7d32;
-                }
-            """)
+            if hasattr(self, 'style_cache'):
+                self.current_image_status.setStyleSheet(self.style_cache['status_annotated'])
         else:
             self.current_image_status.setText('⚪ 未标注')
-            self.current_image_status.setStyleSheet("""
-                QLabel {
-                    font-weight: 600;
-                    padding: 2px 8px;
-                    border-radius: 4px;
-                    background-color: #fff3e0;
-                    color: #f57c00;
-                }
-            """)
+            if hasattr(self, 'style_cache'):
+                self.current_image_status.setStyleSheet(self.style_cache['status_unannotated'])
 
         # 更新位置信息
         self.position_label.setText(f'📊 位置: {stats["current_index"]}/{stats["total"]}')
 
-        # 更新自动保存状态
+        # 更新自动保存状态 - 使用缓存样式
         if hasattr(self, 'auto_save_indicator'):
             if hasattr(self, 'auto_saving') and self.auto_saving.isChecked():
                 self.auto_save_indicator.setText('✅ 自动保存: 开启')
-                self.auto_save_indicator.setStyleSheet("""
-                    QLabel {
-                        color: #4caf50;
-                        font-size: 12px;
-                        padding: 4px 8px;
-                        background-color: #e8f5e8;
-                        border-radius: 4px;
-                        border: 1px solid #4caf50;
-                    }
-                """)
+                if hasattr(self, 'style_cache'):
+                    self.auto_save_indicator.setStyleSheet(self.style_cache['auto_save_enabled'])
             else:
                 self.auto_save_indicator.setText('❌ 自动保存: 关闭')
-                self.auto_save_indicator.setStyleSheet("""
-                    QLabel {
-                        color: #757575;
-                        font-size: 12px;
-                        padding: 4px 8px;
-                        background-color: #f5f5f5;
-                        border-radius: 4px;
-                    }
-                """)
+                if hasattr(self, 'style_cache'):
+                    self.auto_save_indicator.setStyleSheet(self.style_cache['auto_save_disabled'])
+        
+        print("[PERF] 状态栏更新完成")
 
     def update_format_display(self):
         """更新格式显示状态"""
@@ -2005,38 +2065,29 @@ class MainWindow(QMainWindow, WindowMixin):
             LabelFileFormat.PASCAL_VOC: {
                 'emoji': '📄',
                 'name': 'XML',
-                'color': '#4caf50',
-                'bg_color': '#e8f5e8'
+                'style_key': 'format_status_xml'
             },
             LabelFileFormat.CREATE_ML: {
                 'emoji': '📋', 
                 'name': 'JSON',
-                'color': '#ff9800',
-                'bg_color': '#fff3e0'
+                'style_key': 'format_status_json'
             },
             LabelFileFormat.YOLO: {
                 'emoji': '📝',
                 'name': 'TXT', 
-                'color': '#2196f3',
-                'bg_color': '#e3f2fd'
+                'style_key': 'format_status_txt'
             }
         }
         
         current_format = getattr(self, 'label_file_format', LabelFileFormat.PASCAL_VOC)
         info = format_info.get(current_format, format_info[LabelFileFormat.PASCAL_VOC])
         
-        # 更新状态栏显示
+        # 更新状态栏显示 - 使用缓存的样式
         self.format_status_label.setText(f"{info['emoji']} 格式: {info['name']}")
-        self.format_status_label.setStyleSheet(f"""
-            QLabel {{
-                font-weight: 600;
-                color: {info['color']};
-                padding: 2px 8px;
-                background-color: {info['bg_color']};
-                border-radius: 4px;
-                min-width: 80px;
-            }}
-        """)
+        
+        # 使用缓存的样式而不是重新生成CSS
+        if hasattr(self, 'style_cache') and info['style_key'] in self.style_cache:
+            self.format_status_label.setStyleSheet(self.style_cache[info['style_key']])
         
         # 同步下拉框选中项（避免循环调用）
         if hasattr(self, 'format_combo'):
@@ -2953,6 +3004,109 @@ class MainWindow(QMainWindow, WindowMixin):
             items_list.sort(key=lambda item: item.text())
             return items_list
 
+    def refresh_annotation_cache(self):
+        """
+        刷新标注状态缓存
+        只在必要时重建缓存，避免不必要的文件扫描
+        """
+        if not self.cache_dirty or not hasattr(self, 'm_img_list') or not self.m_img_list:
+            return
+            
+        print(f"[PERF] 开始重建标注状态缓存，图片数量: {len(self.m_img_list)}")
+        start_time = time.time()
+        
+        # 清空旧缓存
+        self.annotation_cache.clear()
+        annotated_count = 0
+        
+        # 批量扫描所有图片的标注状态
+        for img_path in self.m_img_list:
+            is_annotated = self._check_annotation_files_exist(img_path)
+            self.annotation_cache[img_path] = is_annotated
+            if is_annotated:
+                annotated_count += 1
+        
+        # 更新统计缓存
+        self.annotation_stats_cache = {
+            'total': len(self.m_img_list),
+            'annotated': annotated_count,
+            'cache_valid': True
+        }
+        
+        # 标记缓存已更新
+        self.cache_dirty = False
+        
+        end_time = time.time()
+        print(f"[PERF] 缓存重建完成，耗时: {end_time - start_time:.3f}秒")
+        print(f"[PERF] 缓存统计: {annotated_count}/{len(self.m_img_list)} 已标注")
+    
+    def _check_annotation_files_exist(self, image_path):
+        """
+        检查标注文件是否存在（用于缓存构建）
+        这是原 is_image_annotated 方法的快速版本
+        """
+        if not image_path or not os.path.exists(image_path):
+            return False
+
+        # 获取图片文件名（不含扩展名）
+        basename = os.path.basename(os.path.splitext(image_path)[0])
+
+        # 检查标注文件是否存在
+        if self.default_save_dir is not None:
+            # 如果设置了默认保存目录，在该目录中查找标注文件
+            xml_path = os.path.join(self.default_save_dir, basename + XML_EXT)
+            txt_path = os.path.join(self.default_save_dir, basename + TXT_EXT)
+            json_path = os.path.join(self.default_save_dir, basename + JSON_EXT)
+        else:
+            # 否则在图片同目录下查找标注文件
+            xml_path = os.path.splitext(image_path)[0] + XML_EXT
+            txt_path = os.path.splitext(image_path)[0] + TXT_EXT
+            json_path = os.path.splitext(image_path)[0] + JSON_EXT
+
+        # 按优先级检查标注文件是否存在：XML > TXT > JSON
+        return (os.path.isfile(xml_path) or
+                os.path.isfile(txt_path) or
+                os.path.isfile(json_path))
+    
+    def get_cached_annotation_status(self, image_path):
+        """
+        快速获取标注状态（使用缓存）
+        替代原来的 is_image_annotated 方法
+        """
+        # 如果缓存失效，先刷新缓存
+        if self.cache_dirty:
+            self.refresh_annotation_cache()
+        
+        return self.annotation_cache.get(image_path, False)
+    
+    def update_annotation_cache(self, image_path, is_annotated):
+        """
+        更新单个图片的标注状态缓存
+        在保存/删除标注时调用
+        """
+        old_status = self.annotation_cache.get(image_path, False)
+        self.annotation_cache[image_path] = is_annotated
+        
+        # 更新统计计数
+        if self.annotation_stats_cache['cache_valid']:
+            if is_annotated and not old_status:
+                # 新增标注
+                self.annotation_stats_cache['annotated'] += 1
+                print(f"[PERF] 标注缓存更新: {image_path} -> 已标注")
+            elif not is_annotated and old_status:
+                # 删除标注
+                self.annotation_stats_cache['annotated'] -= 1
+                print(f"[PERF] 标注缓存更新: {image_path} -> 未标注")
+    
+    def invalidate_annotation_cache(self):
+        """
+        使标注缓存失效
+        在图片列表变更时调用
+        """
+        self.cache_dirty = True
+        self.annotation_stats_cache['cache_valid'] = False
+        print("[PERF] 标注缓存已失效，将在下次访问时重建")
+
     def save_labels(self, annotation_file_path):
         annotation_file_path = ustr(annotation_file_path)
         if self.label_file is None:
@@ -2995,6 +3149,12 @@ class MainWindow(QMainWindow, WindowMixin):
             except UnicodeEncodeError:
                 print(
                     'Image and annotation saved successfully (contains non-ASCII characters)')
+            
+            # 性能优化：更新标注状态缓存
+            if self.file_path:
+                self.update_annotation_cache(self.file_path, True)
+                print(f"[PERF] 标注保存成功，缓存已更新: {self.file_path}")
+            
             return True
         except LabelFileError as e:
             self.error_message(u'Error saving label data', u'<b>%s</b>' % e)
@@ -3254,9 +3414,16 @@ class MainWindow(QMainWindow, WindowMixin):
         # Make sure that filePath is a regular python string, rather than QString
         file_path = ustr(file_path)
 
-        # Fix bug: An  index error after select a directory when open a new file.
+        # 性能优化：缓存路径计算，避免重复调用
         unicode_file_path = ustr(file_path)
-        unicode_file_path = os.path.abspath(unicode_file_path)
+        
+        # 只有当文件路径真正改变时才重新计算绝对路径
+        if not hasattr(self, '_cached_file_path') or self._cached_file_path != unicode_file_path:
+            unicode_file_path = os.path.abspath(unicode_file_path)
+            self._cached_file_path = unicode_file_path
+            self._cached_basename = os.path.basename(unicode_file_path)
+        else:
+            unicode_file_path = self._cached_file_path
         # Tzutalin 20160906 : Add file list and dock to move faster
         # Highlight the file item
         if unicode_file_path and self.file_list_widget.count() > 0:
@@ -3300,7 +3467,7 @@ class MainWindow(QMainWindow, WindowMixin):
                                    u"<p>Make sure <i>%s</i> is a valid image file." % unicode_file_path)
                 self.status("Error reading %s" % unicode_file_path)
                 return False
-            self.status("Loaded %s" % os.path.basename(unicode_file_path))
+            self.status("Loaded %s" % self._cached_basename)
             self.image = image
             self.file_path = unicode_file_path
             self.canvas.load_pixmap(QPixmap.fromImage(image))
@@ -3324,9 +3491,14 @@ class MainWindow(QMainWindow, WindowMixin):
             if not self.label_file:
                 self.show_bounding_box_from_annotation_file(self.file_path)
 
-            # 更新按钮状态
+            # 性能优化：批量UI更新，减少重绘次数
+            # 暂停状态栏自动更新
+            if hasattr(self, 'status_update_timer'):
+                self.status_update_timer.stop()
+            
+            # 批量更新UI组件
             self.update_switch_button_state()
-
+            
             counter = self.counter_str()
             self.setWindowTitle(__appname__ + ' ' + file_path + ' ' + counter)
 
@@ -3345,8 +3517,11 @@ class MainWindow(QMainWindow, WindowMixin):
             # 智能预测：如果开启了智能预测且当前图片未标注，则自动执行预测
             self.trigger_smart_prediction_if_needed()
 
-            # 更新状态栏信息
-            self.update_status_bar_info()
+            # 延迟更新状态栏信息，避免加载过程中的频繁更新
+            if hasattr(self, 'status_update_timer'):
+                self.status_update_timer.start(100)  # 100ms延迟批量更新
+            else:
+                self.update_status_bar_info()
 
             return True
         return False
@@ -3359,38 +3534,16 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def is_image_annotated(self, image_path):
         """
-        检查指定图片是否已经标注
-        支持XML (Pascal VOC)、TXT (YOLO)、JSON (CreateML) 格式
-
+        检查指定图片是否已经标注（性能优化版）
+        使用缓存系统避免重复的文件I/O操作
+        
         Args:
             image_path (str): 图片文件路径
 
         Returns:
             bool: True表示已标注，False表示未标注
         """
-        if not image_path or not os.path.exists(image_path):
-            return False
-
-        # 获取图片文件名（不含扩展名）
-        basename = os.path.basename(os.path.splitext(image_path)[0])
-
-        # 检查标注文件是否存在
-        if self.default_save_dir is not None:
-            # 如果设置了默认保存目录，在该目录中查找标注文件
-            xml_path = os.path.join(self.default_save_dir, basename + XML_EXT)
-            txt_path = os.path.join(self.default_save_dir, basename + TXT_EXT)
-            json_path = os.path.join(
-                self.default_save_dir, basename + JSON_EXT)
-        else:
-            # 否则在图片同目录下查找标注文件
-            xml_path = os.path.splitext(image_path)[0] + XML_EXT
-            txt_path = os.path.splitext(image_path)[0] + TXT_EXT
-            json_path = os.path.splitext(image_path)[0] + JSON_EXT
-
-        # 按优先级检查标注文件是否存在：XML > TXT > JSON
-        return (os.path.isfile(xml_path) or
-                os.path.isfile(txt_path) or
-                os.path.isfile(json_path))
+        return self.get_cached_annotation_status(image_path)
 
     def find_next_unannotated_image(self):
         """
@@ -3479,7 +3632,8 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def calculate_annotation_statistics(self):
         """
-        计算详细的标注统计信息
+        计算详细的标注统计信息（性能优化版）
+        使用缓存系统，避免重复遍历和文件检查
 
         Returns:
             dict: 包含标注统计信息的字典
@@ -3494,22 +3648,21 @@ class MainWindow(QMainWindow, WindowMixin):
                 'current_index': 0
             }
 
-        total_images = len(self.m_img_list)
-        annotated_count = 0
-        current_annotated = False
+        # 确保缓存是最新的
+        if self.cache_dirty:
+            self.refresh_annotation_cache()
 
-        # 遍历所有图片检查标注状态
-        for i, img_path in enumerate(self.m_img_list):
-            is_annotated = self.is_image_annotated(img_path)
-            if is_annotated:
-                annotated_count += 1
-
-            # 检查当前图片的标注状态
-            if i == self.cur_img_idx:
-                current_annotated = is_annotated
-
+        # 从缓存获取统计信息
+        total_images = self.annotation_stats_cache['total']
+        annotated_count = self.annotation_stats_cache['annotated']
         unannotated_count = total_images - annotated_count
         percentage = (annotated_count / total_images * 100) if total_images > 0 else 0.0
+
+        # 检查当前图片的标注状态（使用缓存）
+        current_annotated = False
+        if 0 <= self.cur_img_idx < len(self.m_img_list):
+            current_img_path = self.m_img_list[self.cur_img_idx]
+            current_annotated = self.get_cached_annotation_status(current_img_path)
 
         return {
             'total': total_images,
@@ -3711,8 +3864,11 @@ class MainWindow(QMainWindow, WindowMixin):
         self.canvas.adjustSize()
         self.canvas.update()
 
-        # 更新状态栏信息
-        self.update_status_bar_info()
+        # 性能优化：延迟更新状态栏信息，避免paint_canvas频繁调用时的重复更新
+        if hasattr(self, 'status_update_timer'):
+            self.status_update_timer.start(50)  # 50ms延迟，多次调用时会重置计时器
+        else:
+            self.update_status_bar_info()
 
     def adjust_scale(self, initial=False):
         # 当initial=True时，检查是否使用用户偏好缩放
@@ -3949,20 +4105,50 @@ class MainWindow(QMainWindow, WindowMixin):
         if not self.may_continue() or not dir_path:
             return
 
+        print("[PERF] 开始导入目录图片...")
+        start_time = time.time()
+
         self.last_open_dir = dir_path
         self.dir_name = dir_path
         self.file_path = None
+        
+        # 性能优化：暂停所有自动更新
+        if hasattr(self, 'status_update_timer'):
+            self.status_update_timer.stop()
+        
+        # 批量清理和设置
         self.file_list_widget.clear()
         self.m_img_list = self.scan_all_images(dir_path)
         self.img_count = len(self.m_img_list)
-        self.open_next_image()
-        for imgPath in self.m_img_list:
-            item = QListWidgetItem(imgPath)
-            self.file_list_widget.addItem(item)
-
-        # 更新切换按钮状态和状态栏信息
-        self.update_switch_button_state()
-        self.update_status_bar_info()
+        
+        # 性能优化：批量添加文件列表项，减少UI重绘
+        self.file_list_widget.setUpdatesEnabled(False)  # 暂停UI更新
+        try:
+            for imgPath in self.m_img_list:
+                item = QListWidgetItem(imgPath)
+                self.file_list_widget.addItem(item)
+        finally:
+            self.file_list_widget.setUpdatesEnabled(True)  # 恢复UI更新
+        
+        # 性能优化：图片列表变更时使缓存失效
+        self.invalidate_annotation_cache()
+        
+        # 延迟加载第一张图片，给UI时间完成更新
+        def delayed_load_first_image():
+            self.open_next_image()
+            # 批量更新UI状态
+            self.update_switch_button_state()
+            if hasattr(self, 'status_update_timer'):
+                self.status_update_timer.start(100)  # 延迟状态栏更新
+            else:
+                self.update_status_bar_info()
+            
+            end_time = time.time()
+            print(f"[PERF] 目录导入完成，用时: {(end_time - start_time)*1000:.1f}ms，共{len(self.m_img_list)}张图片")
+        
+        # 使用QTimer异步执行，避免阻塞UI
+        from PyQt5.QtCore import QTimer
+        QTimer.singleShot(10, delayed_load_first_image)
 
     def verify_image(self, _value=False):
         # Proceeding next image without dialog if having any label
