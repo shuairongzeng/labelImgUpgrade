@@ -54,6 +54,7 @@ from libs.constants import *
 
 # AI助手相关导入
 from libs.ai_assistant_panel import AIAssistantPanel, CollapsibleAIPanel
+from libs.class_manager import ClassConfigManager
 from libs.ai_assistant import YOLOPredictor, ModelManager, BatchProcessor, ConfidenceFilter
 from libs.batch_operations import BatchOperations, BatchOperationsDialog
 from libs.shortcut_manager import ShortcutManager, ShortcutConfigDialog
@@ -502,6 +503,15 @@ class MainWindow(QMainWindow, WindowMixin):
         # 智能预测相关变量
         self.smart_predict_timer = None
         self.last_smart_predict_path = None
+        
+        # 初始化类别配置管理器
+        try:
+            self.class_manager = ClassConfigManager("configs")
+            self.class_manager.load_class_config()
+            print("[DEBUG] 类别配置管理器初始化成功")
+        except Exception as e:
+            print(f"[WARNING] 类别配置管理器初始化失败: {e}")
+            self.class_manager = None
 
         # Store predefined classes file path for saving
         print(f"[DEBUG] 初始化预设类文件路径...")
@@ -1499,6 +1509,8 @@ class MainWindow(QMainWindow, WindowMixin):
                 border-color: #2196f3;
             }
         """)
+        # 连接格式下拉框变更事件
+        self.format_combo.currentTextChanged.connect(self.on_format_combo_changed)
         layout.addWidget(self.format_combo)
 
         # 弹性空间
@@ -1788,8 +1800,30 @@ class MainWindow(QMainWindow, WindowMixin):
         self.position_label = QLabel('📊 位置: 0/0')
         status_bar.addPermanentWidget(self.position_label)
 
+        # 分隔符
+        separator6 = QLabel('|')
+        separator6.setStyleSheet('color: #bdbdbd; margin: 0 8px;')
+        status_bar.addPermanentWidget(separator6)
+
+        # 保存格式状态标签
+        self.format_status_label = QLabel('📄 格式: XML')
+        self.format_status_label.setStyleSheet("""
+            QLabel {
+                font-weight: 600;
+                color: #1976d2;
+                padding: 2px 8px;
+                background-color: #e3f2fd;
+                border-radius: 4px;
+                min-width: 80px;
+            }
+        """)
+        status_bar.addPermanentWidget(self.format_status_label)
+
         # 初始化状态栏信息
         self.update_status_bar_info()
+        
+        # 初始化格式显示
+        self.update_format_display()
 
         # 强制显示状态栏（防止restoreState隐藏状态栏）
         status_bar.setVisible(True)
@@ -1961,6 +1995,82 @@ class MainWindow(QMainWindow, WindowMixin):
                         border-radius: 4px;
                     }
                 """)
+
+    def update_format_display(self):
+        """更新格式显示状态"""
+        if not hasattr(self, 'format_status_label'):
+            return
+            
+        format_info = {
+            LabelFileFormat.PASCAL_VOC: {
+                'emoji': '📄',
+                'name': 'XML',
+                'color': '#4caf50',
+                'bg_color': '#e8f5e8'
+            },
+            LabelFileFormat.CREATE_ML: {
+                'emoji': '📋', 
+                'name': 'JSON',
+                'color': '#ff9800',
+                'bg_color': '#fff3e0'
+            },
+            LabelFileFormat.YOLO: {
+                'emoji': '📝',
+                'name': 'TXT', 
+                'color': '#2196f3',
+                'bg_color': '#e3f2fd'
+            }
+        }
+        
+        current_format = getattr(self, 'label_file_format', LabelFileFormat.PASCAL_VOC)
+        info = format_info.get(current_format, format_info[LabelFileFormat.PASCAL_VOC])
+        
+        # 更新状态栏显示
+        self.format_status_label.setText(f"{info['emoji']} 格式: {info['name']}")
+        self.format_status_label.setStyleSheet(f"""
+            QLabel {{
+                font-weight: 600;
+                color: {info['color']};
+                padding: 2px 8px;
+                background-color: {info['bg_color']};
+                border-radius: 4px;
+                min-width: 80px;
+            }}
+        """)
+        
+        # 同步下拉框选中项（避免循环调用）
+        if hasattr(self, 'format_combo'):
+            combo_index = {
+                LabelFileFormat.PASCAL_VOC: 0,  # 'PASCAL VOC'
+                LabelFileFormat.YOLO: 1,        # 'YOLO'  
+                LabelFileFormat.CREATE_ML: 2    # 'CreateML'
+            }.get(current_format, 0)
+            
+            # 临时断开信号，避免循环触发
+            self.format_combo.blockSignals(True)
+            self.format_combo.setCurrentIndex(combo_index)
+            self.format_combo.blockSignals(False)
+
+    def on_format_combo_changed(self, format_text):
+        """处理格式下拉框变更事件"""
+        format_mapping = {
+            'PASCAL VOC': FORMAT_PASCALVOC,
+            'YOLO': FORMAT_YOLO,
+            'CreateML': FORMAT_CREATEML
+        }
+        
+        new_format = format_mapping.get(format_text)
+        if new_format and new_format != self.get_current_format_name():
+            self.set_format(new_format)
+            
+    def get_current_format_name(self):
+        """获取当前格式的名称"""
+        format_names = {
+            LabelFileFormat.PASCAL_VOC: FORMAT_PASCALVOC,
+            LabelFileFormat.YOLO: FORMAT_YOLO,
+            LabelFileFormat.CREATE_ML: FORMAT_CREATEML
+        }
+        return format_names.get(self.label_file_format, FORMAT_PASCALVOC)
 
     def create_welcome_widget(self):
         """创建欢迎界面"""
@@ -2368,6 +2478,9 @@ class MainWindow(QMainWindow, WindowMixin):
             self.actions.save_format.setIcon(new_icon("format_createml"))
             self.label_file_format = LabelFileFormat.CREATE_ML
             LabelFile.suffix = JSON_EXT
+            
+        # 更新格式显示
+        self.update_format_display()
 
     def change_format(self):
         if self.label_file_format == LabelFileFormat.PASCAL_VOC:
@@ -2698,9 +2811,147 @@ class MainWindow(QMainWindow, WindowMixin):
         unique_text_list = list(set(items_text_list))
         # Add a null row for showing all the labels
         unique_text_list.append("")
-        unique_text_list.sort()
+        
+        # 使用智能排序：优先按配置文件顺序，然后按字母顺序
+        # 确保空字符串在最前面，作为默认选项
+        unique_text_list = self.sort_labels_by_config(unique_text_list)
 
         self.combo_box.update_items(unique_text_list)
+        
+        # 确保默认选择第一项（空字符串），显示所有标签
+        if unique_text_list and unique_text_list[0] == "":
+            self.combo_box.cb.setCurrentIndex(0)
+            print("[DEBUG] 设置下拉框默认选择第一项（空字符串）")
+        else:
+            print(f"[DEBUG] 警告：第一项不是空字符串: {unique_text_list[0] if unique_text_list else 'None'}")
+
+    def sort_labels_by_config(self, labels_list):
+        """
+        根据类别配置文件的顺序对标签进行排序
+        
+        Args:
+            labels_list: 需要排序的标签列表
+            
+        Returns:
+            排序后的标签列表
+        """
+        if not labels_list:
+            return labels_list
+            
+        print(f"[DEBUG] 开始排序标签: {labels_list}")
+        
+        # 分离出空字符串（用于显示所有标签的选项）
+        empty_labels = [label for label in labels_list if label == ""]
+        non_empty_labels = [label for label in labels_list if label != ""]
+        
+        if not self.class_manager:
+            print("[DEBUG] 没有类别管理器，使用字母排序")
+            non_empty_labels.sort()
+            # 空字符串应该在最前面，作为默认选项
+            return empty_labels + non_empty_labels
+        
+        try:
+            # 获取配置文件中的类别顺序
+            config_order = self.class_manager.get_class_list()
+            print(f"[DEBUG] 配置文件类别顺序: {config_order}")
+            
+            if not config_order:
+                print("[DEBUG] 配置文件为空，使用字母排序")
+                non_empty_labels.sort()
+                # 空字符串应该在最前面，作为默认选项
+                return empty_labels + non_empty_labels
+            
+            # 创建排序键字典
+            sort_keys = {}
+            for i, class_name in enumerate(config_order):
+                sort_keys[class_name] = i
+            
+            print(f"[DEBUG] 排序键映射: {sort_keys}")
+            
+            # 对非空标签进行排序
+            def get_sort_key(label):
+                if label in sort_keys:
+                    return (0, sort_keys[label])  # 配置中的类别，按配置顺序
+                else:
+                    return (1, label)  # 其他类别，按字母顺序排在最后
+            
+            sorted_non_empty = sorted(non_empty_labels, key=get_sort_key)
+            # 空字符串应该在最前面，作为默认选项，这样下拉框默认显示所有标签
+            result = empty_labels + sorted_non_empty
+            
+            print(f"[DEBUG] 排序完成: {result}")
+            print(f"[DEBUG] 配置顺序类别: {[l for l in sorted_non_empty if l in sort_keys]}")
+            print(f"[DEBUG] 其他类别: {[l for l in sorted_non_empty if l not in sort_keys]}")
+            
+            return result
+            
+        except Exception as e:
+            print(f"[WARNING] 标签排序失败，使用默认排序: {e}")
+            import traceback
+            traceback.print_exc()
+            non_empty_labels.sort()
+            # 空字符串应该在最前面，作为默认选项
+            return empty_labels + non_empty_labels
+
+    def sort_label_items_by_config(self, items_list):
+        """
+        根据类别配置文件的顺序对标签项目进行排序
+        
+        Args:
+            items_list: 需要排序的QListWidgetItem列表
+            
+        Returns:
+            排序后的items列表
+        """
+        if not items_list:
+            return items_list
+            
+        print(f"[DEBUG] 开始排序标签项目: {[item.text() for item in items_list]}")
+        
+        if not self.class_manager:
+            print("[DEBUG] 没有类别管理器，使用字母排序")
+            items_list.sort(key=lambda item: item.text())
+            return items_list
+        
+        try:
+            # 获取配置文件中的类别顺序
+            config_order = self.class_manager.get_class_list()
+            print(f"[DEBUG] 配置文件类别顺序: {config_order}")
+            
+            if not config_order:
+                print("[DEBUG] 配置文件为空，使用字母排序")
+                items_list.sort(key=lambda item: item.text())
+                return items_list
+            
+            # 创建排序键字典
+            sort_keys = {}
+            for i, class_name in enumerate(config_order):
+                sort_keys[class_name] = i
+            
+            print(f"[DEBUG] 排序键映射: {sort_keys}")
+            
+            # 对标签项目进行排序
+            def get_sort_key(item):
+                label = item.text()
+                if label in sort_keys:
+                    return (0, sort_keys[label])  # 配置中的类别，按配置顺序
+                else:
+                    return (1, label)  # 其他类别，按字母顺序排在最后
+            
+            sorted_items = sorted(items_list, key=get_sort_key)
+            
+            print(f"[DEBUG] 标签项目排序完成: {[item.text() for item in sorted_items]}")
+            print(f"[DEBUG] 配置顺序项目: {[item.text() for item in sorted_items if item.text() in sort_keys]}")
+            print(f"[DEBUG] 其他项目: {[item.text() for item in sorted_items if item.text() not in sort_keys]}")
+            
+            return sorted_items
+            
+        except Exception as e:
+            print(f"[WARNING] 标签项目排序失败，使用默认排序: {e}")
+            import traceback
+            traceback.print_exc()
+            items_list.sort(key=lambda item: item.text())
+            return items_list
 
     def save_labels(self, annotation_file_path):
         annotation_file_path = ustr(annotation_file_path)
@@ -4761,11 +5012,18 @@ class MainWindow(QMainWindow, WindowMixin):
                 detections = predictions
                 is_smart_prediction = False
 
-            print(f"[DEBUG] 开始应用 {len(detections)} 个检测结果到画布")
+            print(f"[DEBUG] 开始批量应用 {len(detections)} 个检测结果到画布")
+            
+            # 批量处理优化：一次性添加所有形状，最后统一更新UI
+            new_shapes = []
+            new_items = []
+            
+            # 导入必要的模块
+            from libs.utils import generate_color_by_text
 
-            # 将每个检测结果转换为Shape对象并添加到画布
+            # 批量创建Shape对象，避免在循环中更新UI
             for i, detection in enumerate(detections):
-                print(f"[DEBUG] 应用预测结果: {detection}")
+                print(f"[DEBUG] 处理预测结果 {i+1}: {detection.class_name}")
 
                 # 使用Detection的to_shape方法转换为Shape对象
                 shape = detection.to_shape()
@@ -4774,7 +5032,6 @@ class MainWindow(QMainWindow, WindowMixin):
                 shape.paint_label = self.display_label_option.isChecked()
 
                 # 生成颜色
-                from libs.utils import generate_color_by_text
                 shape.line_color = generate_color_by_text(shape.label)
                 shape.fill_color = generate_color_by_text(shape.label)
 
@@ -4782,16 +5039,44 @@ class MainWindow(QMainWindow, WindowMixin):
                 shape.ai_generated = True
                 shape.ai_confidence = detection.confidence
 
-                # 添加到画布
-                self.canvas.shapes.append(shape)
+                # 创建列表项但不立即添加到UI
+                item = HashableQListWidgetItem(shape.label)
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                item.setCheckState(Qt.Checked)
+                item.setBackground(generate_color_by_text(shape.label))
+                
+                # 建立映射关系
+                self.items_to_shapes[item] = shape
+                self.shapes_to_items[shape] = item
+                
+                new_shapes.append(shape)
+                new_items.append(item)
 
-                # 添加到标签列表
-                self.add_label(shape)
+                print(f"[DEBUG] 成功处理检测结果 {i+1}: {detection.class_name} (置信度: {detection.confidence:.3f})")
 
-                print(
-                    f"[DEBUG] 成功添加检测结果 {i+1}: {detection.class_name} (置信度: {detection.confidence:.3f})")
+            # 批量添加到画布和列表，避免重复UI更新
+            print("[DEBUG] 批量添加形状到画布...")
+            self.canvas.shapes.extend(new_shapes)
+            
+            print("[DEBUG] 批量添加项目到标签列表...")
+            # 在添加到标签列表之前，按配置顺序排序
+            sorted_items = self.sort_label_items_by_config(new_items)
+            for item in sorted_items:
+                self.label_list.addItem(item)
+                # 调试：确认复选框状态
+                print(f"[DEBUG] 项目 '{item.text()}' 复选框状态: {item.checkState()}, Qt.Checked={Qt.Checked}")
+            
+            # 启用相关操作
+            for action in self.actions.onShapesPresent:
+                action.setEnabled(True)
 
-            # 更新画布显示
+            # 只在最后更新一次UI组件
+            print("[DEBUG] 更新UI组件...")
+            self.update_combo_box()
+            self.update_label_stats()
+
+            # 更新画布显示（只调用一次）
+            print("[DEBUG] 刷新画布...")
             self.canvas.repaint()
 
             # 设置为已修改状态
@@ -4805,7 +5090,7 @@ class MainWindow(QMainWindow, WindowMixin):
                 self.statusBar().showMessage(
                     f'✅ 预测结果已应用，共添加 {len(detections)} 个检测框')
 
-            print(f"[DEBUG] 成功应用所有预测结果到画布，共 {len(detections)} 个对象")
+            print(f"[DEBUG] 批量应用完成，成功添加 {len(detections)} 个对象到画布")
 
         except Exception as e:
             error_msg = f"AI预测结果应用失败: {str(e)}"

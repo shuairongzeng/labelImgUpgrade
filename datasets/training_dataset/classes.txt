@@ -6,3 +6,5 @@ xiuLuo
 xiuLiShang
 lingQu
 door
+fanPai
+zaiCiTiaoZhan

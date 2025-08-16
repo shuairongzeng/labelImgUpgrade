@@ -4193,6 +4193,19 @@ class AIAssistantPanel(QWidget):
             self.shuffle_checkbox.setChecked(True)
             config_layout.addRow("随机打乱数据:", self.shuffle_checkbox)
 
+            # 标注格式选择
+            self.annotation_format_combo = QComboBox()
+            self.annotation_format_combo.addItem("自动检测", "auto")
+            self.annotation_format_combo.addItem("XML格式", "xml")
+            self.annotation_format_combo.addItem("JSON格式", "json")
+            self.annotation_format_combo.setToolTip(
+                "选择要使用的标注格式：\n"
+                "• 自动检测：根据最新修改时间智能选择格式\n"
+                "• XML格式：强制使用XML标注文件\n"
+                "• JSON格式：强制使用JSON标注文件"
+            )
+            config_layout.addRow("标注格式:", self.annotation_format_combo)
+
             layout.addWidget(config_group)
 
             # 数据处理选项组
@@ -4385,15 +4398,109 @@ class AIAssistantPanel(QWidget):
             logger.info(f"📄 找到 {len(json_files)} 个JSON标注文件")
             self._safe_append_auto_log(f"🏷️ 找到 {len(xml_files)} 个XML标注文件")
             self._safe_append_auto_log(f"📄 找到 {len(json_files)} 个JSON标注文件")
+            
+            # 调试信息：显示用户的格式选择
+            user_format_choice = "auto"
+            if hasattr(self, 'annotation_format_combo'):
+                user_format_choice = self.annotation_format_combo.currentData()
+                logger.info(f"🎛️ 用户格式选择: {user_format_choice}")
+                self._safe_append_auto_log(f"🎛️ 用户格式选择: {user_format_choice}")
+            else:
+                logger.info("🎛️ 格式选择组件未找到，使用自动检测")
+                self._safe_append_auto_log("🎛️ 格式选择组件未找到，使用自动检测")
 
-            # 优先使用XML文件，如果没有XML文件则使用JSON文件
-            annotation_files = xml_files if xml_files else json_files
-            annotation_format = "XML" if xml_files else "JSON" if json_files else None
+            # 根据用户选择决定标注格式
+            annotation_files = []
+            annotation_format = None
+            
+            # 获取用户的格式选择（如果有的话）
+            user_format_choice = "auto"
+            if hasattr(self, 'annotation_format_combo'):
+                user_format_choice = self.annotation_format_combo.currentData()
+            
+            if user_format_choice == "xml":
+                # 用户强制选择XML格式
+                if xml_files:
+                    annotation_files = xml_files
+                    annotation_format = "XML"
+                    logger.info(f"👤 用户选择XML格式: {len(xml_files)} 个文件")
+                    self._safe_append_auto_log(f"👤 用户选择XML格式: {len(xml_files)} 个文件")
+                else:
+                    logger.warning("用户选择XML格式但未找到XML文件")
+                    self._safe_append_auto_log("⚠️ 用户选择XML格式但未找到XML文件")
+                    
+            elif user_format_choice == "json":
+                # 用户强制选择JSON格式
+                logger.info(f"🔍 JSON文件列表长度: {len(json_files)}")
+                self._safe_append_auto_log(f"🔍 JSON文件列表长度: {len(json_files)}")
+                if json_files:
+                    logger.info(f"🔍 JSON文件示例: {json_files[:3]}")
+                    self._safe_append_auto_log(f"🔍 JSON文件示例: {json_files[:3]}")
+                    annotation_files = json_files
+                    annotation_format = "JSON"
+                    logger.info(f"👤 用户选择JSON格式: {len(json_files)} 个文件")
+                    self._safe_append_auto_log(f"👤 用户选择JSON格式: {len(json_files)} 个文件")
+                else:
+                    logger.warning("用户选择JSON格式但未找到JSON文件")
+                    self._safe_append_auto_log("⚠️ 用户选择JSON格式但未找到JSON文件")
+                    logger.info(f"🔍 目录中的所有文件: {all_files[:10]}...")  # 显示前10个文件
+                    self._safe_append_auto_log(f"🔍 目录中的所有文件: {len(all_files)} 个")
+                    
+            else:
+                # 自动检测模式：根据最新修改时间智能选择格式
+                if xml_files and json_files:
+                    # 获取最新的XML和JSON文件的修改时间
+                    try:
+                        latest_xml_time = 0
+                        latest_json_time = 0
+                        
+                        for xml_file in xml_files:
+                            xml_path = os.path.join(current_dir, xml_file)
+                            xml_time = os.path.getmtime(xml_path)
+                            latest_xml_time = max(latest_xml_time, xml_time)
+                        
+                        for json_file in json_files:
+                            json_path = os.path.join(current_dir, json_file)
+                            json_time = os.path.getmtime(json_path)
+                            latest_json_time = max(latest_json_time, json_time)
+                        
+                        # 根据最新修改时间选择格式
+                        if latest_json_time > latest_xml_time:
+                            annotation_files = json_files
+                            annotation_format = "JSON"
+                            logger.info(f"🎯 智能选择JSON格式（最新修改时间更晚）")
+                            self._safe_append_auto_log(f"🎯 智能选择JSON格式（最新修改时间更晚）")
+                        else:
+                            annotation_files = xml_files
+                            annotation_format = "XML"
+                            logger.info(f"🎯 智能选择XML格式（最新修改时间更晚）")
+                            self._safe_append_auto_log(f"🎯 智能选择XML格式（最新修改时间更晚）")
+                            
+                    except Exception as e:
+                        # 如果获取修改时间失败，回退到数量比较
+                        logger.warning(f"获取文件修改时间失败，使用数量比较: {e}")
+                        if len(json_files) > len(xml_files):
+                            annotation_files = json_files
+                            annotation_format = "JSON"
+                            logger.info(f"🎯 回退选择JSON格式（{len(json_files)} > {len(xml_files)}）")
+                            self._safe_append_auto_log(f"🎯 回退选择JSON格式（{len(json_files)} > {len(xml_files)}）")
+                        else:
+                            annotation_files = xml_files
+                            annotation_format = "XML"
+                            logger.info(f"🎯 回退选择XML格式（{len(xml_files)} >= {len(json_files)}）")
+                            self._safe_append_auto_log(f"🎯 回退选择XML格式（{len(xml_files)} >= {len(json_files)}）")
+                            
+                elif xml_files:
+                    annotation_files = xml_files
+                    annotation_format = "XML"
+                elif json_files:
+                    annotation_files = json_files
+                    annotation_format = "JSON"
 
             if not annotation_files:
                 error_msg = f"当前目录中没有找到标注文件\n目录: {current_dir}\n支持的格式: XML (.xml) 或 JSON (.json)\n请确保已经完成标注工作"
                 logger.warning(error_msg)
-                self._safe_append_auto_log(f"❌ 未找到标注文件")
+                self._safe_append_auto_log("❌ 未找到标注文件")
                 if not silent:
                     QMessageBox.warning(dialog, "检查失败", error_msg)
                 return False
@@ -4412,7 +4519,7 @@ class AIAssistantPanel(QWidget):
             if not image_files:
                 error_msg = f"当前目录中没有找到图片文件\n目录: {current_dir}\n支持的格式: {', '.join(image_extensions)}"
                 logger.warning(error_msg)
-                self._safe_append_auto_log(f"❌ 未找到图片文件")
+                self._safe_append_auto_log("❌ 未找到图片文件")
                 if not silent:
                     QMessageBox.warning(dialog, "检查失败", error_msg)
                 return False
@@ -4428,7 +4535,7 @@ class AIAssistantPanel(QWidget):
             if len(matched_files) == 0:
                 error_msg = f"图片文件和标注文件名称不匹配\n\n图片文件示例: {image_files[:3] if image_files else '无'}\n{annotation_format}文件示例: {annotation_files[:3] if annotation_files else '无'}"
                 logger.warning(error_msg)
-                self._safe_append_auto_log(f"❌ 文件名不匹配")
+                self._safe_append_auto_log("❌ 文件名不匹配")
                 if not silent:
                     QMessageBox.warning(dialog, "检查失败", error_msg)
                 return False
@@ -4587,9 +4694,21 @@ class AIAssistantPanel(QWidget):
             xml_file_list = [f for f in all_files if f.lower().endswith('.xml')]
             json_file_list = [f for f in all_files if f.lower().endswith('.json')]
 
-            # 优先使用XML文件，如果没有XML文件则使用JSON文件
-            annotation_file_list = xml_file_list if xml_file_list else json_file_list
-            annotation_format = "XML" if xml_file_list else "JSON" if json_file_list else None
+            # 根据用户选择决定使用哪种格式
+            user_format_choice = "auto"
+            if hasattr(self, 'annotation_format_combo'):
+                user_format_choice = self.annotation_format_combo.currentData()
+            
+            if user_format_choice == "xml":
+                annotation_file_list = xml_file_list
+                annotation_format = "XML" if xml_file_list else None
+            elif user_format_choice == "json":
+                annotation_file_list = json_file_list
+                annotation_format = "JSON" if json_file_list else None
+            else:
+                # 自动检测：优先使用XML文件，如果没有XML文件则使用JSON文件
+                annotation_file_list = xml_file_list if xml_file_list else json_file_list
+                annotation_format = "XML" if xml_file_list else "JSON" if json_file_list else None
 
             self._safe_append_auto_log(f"📄 找到 {len(xml_file_list)} 个XML标注文件")
             if json_file_list:
@@ -4778,8 +4897,14 @@ class AIAssistantPanel(QWidget):
             exclude_trained = self.exclude_trained_checkbox.isChecked(
             ) if hasattr(self, 'exclude_trained_checkbox') else False
 
+            self._safe_append_auto_log(f"🎛️ 排除已训练图片选项: {'已勾选' if exclude_trained else '未勾选'}")
+
             if exclude_trained:
                 self._safe_append_auto_log("🚫 将排除已训练的图片")
+                if not self.training_history_manager:
+                    self._safe_append_auto_log("⚠️ 训练历史管理器未初始化，无法排除已训练图片")
+            else:
+                self._safe_append_auto_log("✅ 将包含所有图片（包括已训练的）")
 
             # 准备源目录（如果需要过滤，先创建过滤后的目录）
             filtered_source_dir = source_dir
@@ -4787,6 +4912,10 @@ class AIAssistantPanel(QWidget):
                 self._safe_append_auto_log("🔍 正在检查已训练的图片...")
                 filtered_source_dir = self._create_filtered_source_dir(
                     source_dir, dialog)
+            elif exclude_trained and not self.training_history_manager:
+                self._safe_append_auto_log("⚠️ 无法排除已训练图片，将使用所有图片")
+            else:
+                self._safe_append_auto_log("📁 直接使用原始目录（不过滤）")
 
             # 导入并使用YOLO转换器
             try:
@@ -4801,6 +4930,13 @@ class AIAssistantPanel(QWidget):
                     self._update_class_config_from_source(
                         selected_classes_source, selected_classes)
 
+                # 获取用户的格式选择
+                user_format_choice = "auto"
+                if hasattr(self, 'annotation_format_combo'):
+                    user_format_choice = self.annotation_format_combo.currentData()
+                
+                self._safe_append_auto_log(f"📋 标注格式选择: {user_format_choice}")
+
                 # 创建转换器 - 使用固定类别配置
                 converter = PascalToYOLOConverter(
                     source_dir=filtered_source_dir,  # 使用过滤后的源目录
@@ -4808,7 +4944,8 @@ class AIAssistantPanel(QWidget):
                     dataset_name=dataset_name,
                     train_ratio=train_ratio,
                     use_class_config=True,      # 启用固定类别配置
-                    class_config_dir="configs"  # 配置文件目录
+                    class_config_dir="configs",  # 配置文件目录
+                    preferred_format=user_format_choice  # 用户首选格式
                 )
 
                 # 进度回调函数

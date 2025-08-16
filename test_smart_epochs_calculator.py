@@ -94,9 +94,9 @@ def test_smart_epochs_calculator():
                     print(f"   置信度: {result.confidence_level}")
                     print(f"   计算依据: {result.calculation_basis[0] if result.calculation_basis else '无'}")
                     
-                    # 验证结果合理性
-                    assert 150 <= result.recommended_epochs <= 300, f"极小数据集轮数应在150-300之间，实际: {result.recommended_epochs}"
-                    print("   ✅ 极小数据集测试通过")
+                    # 验证结果合理性 - 更新为防过拟合的保守策略
+                    assert 50 <= result.recommended_epochs <= 150, f"极小数据集轮数应在50-150之间(防过拟合)，实际: {result.recommended_epochs}"
+                    print("   ✅ 极小数据集测试通过(防过拟合策略)")
                 else:
                     print("   ❌ 无法获取数据集信息")
             else:
@@ -114,9 +114,9 @@ def test_smart_epochs_calculator():
                     print(f"   置信度: {result.confidence_level}")
                     print(f"   计算依据: {result.calculation_basis[0] if result.calculation_basis else '无'}")
                     
-                    # 验证结果合理性
-                    assert 100 <= result.recommended_epochs <= 250, f"小数据集轮数应在100-250之间，实际: {result.recommended_epochs}"
-                    print("   ✅ 小数据集测试通过")
+                    # 验证结果合理性 - 更新为防过拟合的谨慎策略
+                    assert 80 <= result.recommended_epochs <= 180, f"小数据集轮数应在80-180之间(谨慎策略)，实际: {result.recommended_epochs}"
+                    print("   ✅ 小数据集测试通过(谨慎策略)")
         
         # 测试用例3：中等数据集
         print("\n📊 测试用例3：中等数据集 (1500张图片)")
@@ -130,8 +130,8 @@ def test_smart_epochs_calculator():
                     print(f"   置信度: {result.confidence_level}")
                     print(f"   计算依据: {result.calculation_basis[0] if result.calculation_basis else '无'}")
                     
-                    # 验证结果合理性
-                    assert 80 <= result.recommended_epochs <= 180, f"中等数据集轮数应在80-180之间，实际: {result.recommended_epochs}"
+                    # 验证结果合理性 - 中等数据集基础轮数提升到120
+                    assert 100 <= result.recommended_epochs <= 200, f"中等数据集轮数应在100-200之间，实际: {result.recommended_epochs}"
                     print("   ✅ 中等数据集测试通过")
         
         # 测试用例4：大数据集

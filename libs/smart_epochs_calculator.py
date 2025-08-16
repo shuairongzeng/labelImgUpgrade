@@ -187,28 +187,28 @@ class SmartEpochsCalculator:
             )
     
     def _calculate_base_epochs_by_dataset_size(self, total_images: int, basis: List[str]) -> int:
-        """基于数据集大小计算基础轮数"""
+        """基于数据集大小计算基础轮数 - 防止小数据集过拟合"""
         if total_images <= self.dataset_size_thresholds['very_small']:
-            # 极小数据集：需要更多轮数来充分学习
-            base_epochs = 200
-            basis.append(f"极小数据集 ({total_images}张): 基础轮数 {base_epochs}")
+            # 极小数据集：保守策略，防止过拟合
+            base_epochs = 80  # 从200降到80，避免过拟合
+            basis.append(f"极小数据集 ({total_images}张): 基础轮数 {base_epochs} (保守策略防过拟合)")
         elif total_images <= self.dataset_size_thresholds['small']:
-            # 小数据集：适中轮数
-            base_epochs = 150
-            basis.append(f"小数据集 ({total_images}张): 基础轮数 {base_epochs}")
+            # 小数据集：适中轮数，仍需谨慎
+            base_epochs = 100  # 从150降到100
+            basis.append(f"小数据集 ({total_images}张): 基础轮数 {base_epochs} (谨慎策略)")
         elif total_images <= self.dataset_size_thresholds['medium']:
             # 中等数据集：标准轮数
-            base_epochs = 100
+            base_epochs = 120  # 从100提升到120，中等数据集可以稍多
             basis.append(f"中等数据集 ({total_images}张): 基础轮数 {base_epochs}")
         elif total_images <= self.dataset_size_thresholds['large']:
             # 大数据集：较少轮数
-            base_epochs = 80
+            base_epochs = 100  # 从80提升到100
             basis.append(f"大数据集 ({total_images}张): 基础轮数 {base_epochs}")
         else:
             # 超大数据集：最少轮数
-            base_epochs = 60
+            base_epochs = 80  # 从60提升到80
             basis.append(f"超大数据集 ({total_images}张): 基础轮数 {base_epochs}")
-        
+
         return base_epochs
     
     def _adjust_for_class_count(self, base_epochs: int, num_classes: int, basis: List[str]) -> int:
@@ -279,18 +279,23 @@ class SmartEpochsCalculator:
         return adjusted
     
     def _evaluate_confidence(self, dataset_info: DatasetInfo, notes: List[str]) -> str:
-        """评估计算结果的置信度"""
+        """评估计算结果的置信度 - 对小数据集更保守"""
         confidence_score = 0
-        
-        # 数据集大小评分
-        if dataset_info.total_images >= 1000:
+
+        # 数据集大小评分 - 对小数据集更严格
+        if dataset_info.total_images >= 2000:
             confidence_score += 3
-        elif dataset_info.total_images >= 200:
+        elif dataset_info.total_images >= 800:
             confidence_score += 2
-        else:
+        elif dataset_info.total_images >= 200:
             confidence_score += 1
-            notes.append("数据集较小，建议增加更多训练数据")
-        
+        else:
+            confidence_score += 0  # 极小数据集不加分
+            if dataset_info.total_images < 100:
+                notes.append("🚨 数据集过小，推荐结果仅供参考，强烈建议人工调整")
+            else:
+                notes.append("⚠️ 数据集较小，建议增加更多训练数据并谨慎调整epochs")
+
         # 类别数量评分
         if 2 <= dataset_info.num_classes <= 50:
             confidence_score += 2
@@ -298,7 +303,7 @@ class SmartEpochsCalculator:
             confidence_score += 1
             if dataset_info.num_classes > 50:
                 notes.append("类别数量较多，可能需要更长的训练时间")
-        
+
         # 数据分布评分
         if dataset_info.train_images > 0 and dataset_info.val_images > 0:
             train_ratio = dataset_info.train_images / dataset_info.total_images
@@ -307,30 +312,55 @@ class SmartEpochsCalculator:
             else:
                 confidence_score += 1
                 notes.append("建议调整训练/验证数据比例至7:3或8:2")
-        
-        # 返回置信度等级
+
+        # 小数据集额外降低置信度
+        if dataset_info.total_images < 500:
+            confidence_score = max(0, confidence_score - 1)  # 小数据集降低1分
+
+        # 返回置信度等级 - 提高标准
         if confidence_score >= 6:
             return "高"
-        elif confidence_score >= 4:
+        elif confidence_score >= 3:
             return "中"
         else:
             return "低"
     
     def _add_training_recommendations(self, dataset_info: DatasetInfo, model_type: str, notes: List[str]):
-        """添加训练建议"""
-        # 数据集大小相关建议
+        """添加训练建议 - 重点关注过拟合预防"""
+        # 数据集大小相关建议 - 强化过拟合预防
         if dataset_info.total_images < 100:
-            notes.append("⚠️ 数据集过小，建议使用数据增强技术")
-            notes.append("💡 考虑使用预训练模型进行微调")
-        
-        # 模型选择建议
-        if dataset_info.total_images < 500 and model_type in ['yolov8l', 'yolov8x']:
-            notes.append("⚠️ 数据集较小，建议使用更小的模型(yolov8n/s)避免过拟合")
-        
+            notes.append("🚨 数据集过小，极易过拟合！强烈建议：")
+            notes.append("   • 使用Early Stopping监控验证集loss")
+            notes.append("   • 启用数据增强(旋转、缩放、翻转等)")
+            notes.append("   • 考虑使用预训练模型微调")
+            notes.append("   • 每10-20轮检查一次验证集性能")
+        elif dataset_info.total_images < 500:
+            notes.append("⚠️ 小数据集，注意过拟合风险：")
+            notes.append("   • 建议使用Early Stopping")
+            notes.append("   • 监控训练/验证loss差异")
+            notes.append("   • 适当使用数据增强")
+
+        # 模型选择建议 - 更严格的过拟合预防
+        if dataset_info.total_images < 200 and model_type in ['yolov8m', 'yolov8l', 'yolov8x']:
+            notes.append("🚨 数据集太小，模型过大！强烈建议使用yolov8n避免严重过拟合")
+        elif dataset_info.total_images < 800 and model_type in ['yolov8l', 'yolov8x']:
+            notes.append("⚠️ 数据集较小，建议使用更小的模型(yolov8n/s/m)避免过拟合")
+
+        # Early Stopping建议
+        if dataset_info.total_images < 1000:
+            notes.append("💡 强烈建议设置Early Stopping：patience=10-20")
+
         # 验证数据建议
         if dataset_info.val_images < 50:
-            notes.append("⚠️ 验证数据过少，可能无法准确评估模型性能")
-        
+            notes.append("⚠️ 验证数据过少，可能无法准确评估模型性能和过拟合")
+
         # 类别平衡建议
         if dataset_info.num_classes > 20:
             notes.append("💡 多类别检测，建议监控各类别的训练效果")
+
+        # 通用过拟合预防建议
+        if dataset_info.total_images < 1000:
+            notes.append("📊 过拟合预防检查清单：")
+            notes.append("   ✓ 训练loss下降但验证loss上升时立即停止")
+            notes.append("   ✓ 定期保存最佳验证性能的模型权重")
+            notes.append("   ✓ 使用学习率调度器逐步降低学习率")

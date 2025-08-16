@@ -19,6 +19,13 @@
         "adjusted_epochs": 240,
         "reason": "应用智能计算推荐值",
         "timestamp": "2025-08-05 19:17:20"
+      },
+      {
+        "dataset_path": "D:\\GitHub\\python_labelImg-master\\labelImg-master\\datasets\\training_dataset\\data.yaml",
+        "original_epochs": 100,
+        "adjusted_epochs": 80,
+        "reason": "应用智能计算推荐值",
+        "timestamp": "2025-08-16 08:51:33"
       }
     ]
   },
@@ -58,6 +65,18 @@
       "recommended_epochs": 240,
       "confidence_level": "低",
       "timestamp": "2025-08-05 19:16:29"
+    },
+    {
+      "dataset_path": "D:\\GitHub\\python_labelImg-master\\labelImg-master\\datasets\\training_dataset\\data.yaml",
+      "dataset_info": {
+        "total_images": 420,
+        "train_images": 336,
+        "val_images": 84,
+        "num_classes": 0
+      },
+      "recommended_epochs": 80,
+      "confidence_level": "中",
+      "timestamp": "2025-08-16 08:51:24"
     }
   ]
 }
