@@ -81,6 +81,13 @@ class ShortcutManager(QObject):
         # self.register_action("paste", "粘贴", "Ctrl+V", "编辑操作")  # 由原有系统处理
         # self.register_action("delete", "删除", "Delete", "编辑操作")  # 由原有系统处理，避免冲突
         # self.register_action("select_all", "全选", "Ctrl+A", "编辑操作")  # 由原有系统处理
+        
+        # 扩展编辑操作 - 用户自定义快捷键
+        print("[DEBUG] 正在注册X键删除快捷键...")
+        self.register_action("delete_shape_x", "删除标注框(X键)", "X", "编辑操作")
+        print("[DEBUG] 正在注册Tab键循环选择快捷键...")
+        self.register_action("cycle_select_shape", "循环选择标注框", "Tab", "编辑操作")
+        print(f"[DEBUG] 当前已注册的快捷键动作数量: {len(self.actions)}")
 
         # 视图操作
         self.register_action("zoom_in", "放大", "Ctrl+Plus", "视图操作")
@@ -224,29 +231,47 @@ class ShortcutManager(QObject):
             for action_name, action in self.actions.items():
                 if action.enabled and action.current_key:
                     try:
+                        print(f"[DEBUG] 正在创建快捷键: {action_name} -> {action.current_key}")
                         shortcut = QShortcut(QKeySequence(
                             action.current_key), parent_widget)
+                        
+                        # 对于单字母键，设置为应用级别上下文，确保在任何地方都能响应
+                        if len(action.current_key) == 1 and action.current_key.isalpha():
+                            shortcut.setContext(Qt.ApplicationShortcut)
+                            print(f"[DEBUG] 设置单字母快捷键 {action.current_key} 为应用级别上下文")
+                            logger.info(f"设置单字母快捷键 {action.current_key} 为应用级别上下文")
 
                         # 连接信号
                         if action.callback:
                             shortcut.activated.connect(action.callback)
+                            print(f"[DEBUG] 使用回调函数连接快捷键: {action_name}")
                         else:
+                            # 修复lambda闭包问题，使用partial函数
+                            from functools import partial
                             shortcut.activated.connect(
-                                lambda name=action_name: self.shortcut_triggered.emit(name))
+                                partial(self._emit_shortcut_signal, action_name))
+                            print(f"[DEBUG] 使用信号发射器连接快捷键: {action_name}")
 
                         self.qt_shortcuts[action_name] = shortcut
                         self.shortcuts[action.current_key] = action_name
 
+                        print(f"[DEBUG] 成功创建快捷键: {action.current_key} -> {action_name}")
                         logger.debug(
                             f"创建快捷键: {action.current_key} -> {action_name}")
 
                     except Exception as e:
+                        print(f"[ERROR] 创建快捷键失败 {action_name}: {str(e)}")
                         logger.warning(f"创建快捷键失败 {action_name}: {str(e)}")
 
             logger.info(f"创建了 {len(self.qt_shortcuts)} 个快捷键")
 
         except Exception as e:
             logger.error(f"创建Qt快捷键失败: {str(e)}")
+
+    def _emit_shortcut_signal(self, action_name: str):
+        """Helper方法，用于发射快捷键信号"""
+        print(f"[DEBUG] 快捷键信号发射: {action_name}")
+        self.shortcut_triggered.emit(action_name)
 
     def apply_shortcuts(self, parent_widget: QWidget):
         """

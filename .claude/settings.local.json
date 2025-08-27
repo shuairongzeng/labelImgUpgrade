@@ -20,7 +20,9 @@
       "mcp__serena__get_symbols_overview",
       "mcp__serena__execute_shell_command",
       "mcp__serena__write_memory",
-      "mcp__serena__create_text_file"
+      "mcp__serena__create_text_file",
+      "mcp__serena__insert_before_symbol",
+      "mcp__cunzhi__ji"
     ],
     "defaultMode": "acceptEdits"
   }

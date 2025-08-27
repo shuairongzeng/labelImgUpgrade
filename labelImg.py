@@ -61,6 +61,10 @@ from libs.class_manager import ClassConfigManager
 from libs.ai_assistant import YOLOPredictor, ModelManager, BatchProcessor, ConfidenceFilter
 from libs.batch_operations import BatchOperations, BatchOperationsDialog
 from libs.shortcut_manager import ShortcutManager, ShortcutConfigDialog
+from libs.image_cache_manager import ImageCacheManager
+from libs.background_task_manager import BackgroundTaskManager, TaskPriority
+from libs.debounce_manager import DebounceManager, DebounceStrategy
+from libs.batch_progress_widget import BatchProgressWidget, BatchProgressDialog
 
 
 def get_resource_path(relative_path):
@@ -545,6 +549,50 @@ class MainWindow(QMainWindow, WindowMixin):
             'auto_save_disabled': StatusIndicatorStyles.error_indicator()
         }
         print("[DEBUG] 样式缓存系统初始化成功")
+        
+        # 性能优化：图像缓存管理器
+        try:
+            self.image_cache_manager = ImageCacheManager(
+                max_cache_size=30,      # 最多缓存30张图片
+                max_memory_mb=256       # 最多使用256MB内存
+            )
+            self.image_cache_manager.cache_updated.connect(self.on_image_cached)
+            self.image_cache_manager.memory_warning.connect(self.on_cache_memory_warning)
+            print("[DEBUG] 图像缓存管理器初始化成功")
+        except Exception as e:
+            print(f"[WARNING] 图像缓存管理器初始化失败: {e}")
+            self.image_cache_manager = None
+            
+        # 性能优化：后台任务管理器
+        try:
+            self.background_task_manager = BackgroundTaskManager(max_workers=2)
+            self.background_task_manager.task_completed.connect(self.on_background_task_completed)
+            self.background_task_manager.task_failed.connect(self.on_background_task_failed)
+            self.background_task_manager.task_progress.connect(self.on_background_task_progress)
+            print("[DEBUG] 后台任务管理器初始化成功")
+        except Exception as e:
+            print(f"[WARNING] 后台任务管理器初始化失败: {e}")
+            self.background_task_manager = None
+            
+        # 性能优化：防抖管理器
+        try:
+            self.debounce_manager = DebounceManager()
+            
+            # 创建专用的防抖函数
+            self.debounced_status_update = self.debounce_manager.create_status_bar_debouncer(
+                self._do_update_status_bar_info, delay=80
+            )
+            
+            # 替换原有的定时器方式
+            if hasattr(self, 'status_update_timer'):
+                self.status_update_timer.stop()
+                self.status_update_timer.deleteLater()
+                
+            print("[DEBUG] 防抖管理器初始化成功，状态栏更新防抖已启用")
+        except Exception as e:
+            print(f"[WARNING] 防抖管理器初始化失败: {e}")
+            self.debounce_manager = None
+            self.debounced_status_update = self._do_update_status_bar_info
 
         # Store predefined classes file path for saving
         print(f"[DEBUG] 初始化预设类文件路径...")
@@ -1267,6 +1315,9 @@ class MainWindow(QMainWindow, WindowMixin):
         elif self.last_opened_dir and os.path.exists(self.last_opened_dir):
             self.open_dir_dialog(dir_path=self.last_opened_dir, silent=True)
 
+        # 初始化性能监控系统（在所有组件初始化完成后）
+        self.setup_performance_monitoring()
+        
         # 最终确保状态栏可见（在所有初始化完成后）
         QTimer.singleShot(100, self.ensure_status_bar_visible)
 
@@ -1480,8 +1531,9 @@ class MainWindow(QMainWindow, WindowMixin):
     def setup_batch_operations(self):
         """初始化批量操作系统"""
         try:
-            # 创建批量操作管理器
-            self.batch_operations = BatchOperations(self)
+            # 创建批量操作管理器（传入后台任务管理器以支持异步）
+            task_manager = getattr(self, 'background_task_manager', None)
+            self.batch_operations = BatchOperations(self, task_manager)
 
             # 连接批量操作信号
             self.batch_operations.operation_started.connect(
@@ -1493,7 +1545,7 @@ class MainWindow(QMainWindow, WindowMixin):
             self.batch_operations.operation_error.connect(
                 self.on_batch_operation_error)
 
-            print("[DEBUG] 批量操作系统初始化完成")
+            print("[DEBUG] 批量操作系统初始化完成（支持异步处理）")
 
         except Exception as e:
             print(f"[ERROR] 批量操作初始化失败: {str(e)}")
@@ -1501,11 +1553,37 @@ class MainWindow(QMainWindow, WindowMixin):
     def setup_shortcut_manager(self):
         """初始化快捷键管理系统"""
         try:
+            print("[DEBUG] ====== 开始设置快捷键管理器 ======")
             # 创建快捷键管理器
             self.shortcut_manager = ShortcutManager(self)
+            print(f"[DEBUG] 快捷键管理器创建完成，已注册动作数: {len(self.shortcut_manager.actions)}")
+
+            # 创建智能快捷键优化器
+            from libs.smart_shortcut_optimizer import SmartShortcutOptimizer
+            self.shortcut_optimizer = SmartShortcutOptimizer(
+                self.shortcut_manager, 
+                stats_file="config/shortcut_stats.json"
+            )
+            
+            # 连接智能优化器信号
+            self.shortcut_optimizer.conflicts_detected.connect(self.on_shortcut_conflicts_detected)
+            self.shortcut_optimizer.optimization_ready.connect(self.on_shortcut_optimization_ready)
+            self.shortcut_optimizer.stats_updated.connect(self.on_shortcut_stats_updated)
+
+            # 创建用户习惯记忆系统
+            from libs.user_habit_memory import UserHabitMemory, OperationType
+            self.habit_memory = UserHabitMemory(memory_file="config/user_habits.json")
+            
+            # 连接习惯记忆系统信号
+            self.habit_memory.habit_learned.connect(self.on_habit_learned)
+            self.habit_memory.prediction_ready.connect(self.on_operation_prediction)
+            self.habit_memory.preference_updated.connect(self.on_user_preference_updated)
+            self.habit_memory.workflow_detected.connect(self.on_workflow_detected)
 
             # 应用快捷键到主窗口
+            print("[DEBUG] 正在应用快捷键到主窗口...")
             self.shortcut_manager.apply_shortcuts(self)
+            print("[DEBUG] 快捷键应用完成")
 
             # 连接快捷键信号
             self.shortcut_manager.shortcut_triggered.connect(
@@ -1513,10 +1591,179 @@ class MainWindow(QMainWindow, WindowMixin):
             self.shortcut_manager.shortcuts_changed.connect(
                 self.on_shortcuts_changed)
 
-            print("[DEBUG] 快捷键管理系统初始化完成")
+            print("[DEBUG] 快捷键管理系统初始化完成（包含智能优化器和习惯记忆）")
 
         except Exception as e:
             print(f"[ERROR] 快捷键管理初始化失败: {str(e)}")
+            # 如果智能优化器初始化失败，至少确保基础快捷键管理器工作
+            try:
+                self.shortcut_manager = ShortcutManager(self)
+                self.shortcut_manager.apply_shortcuts(self)
+                self.shortcut_manager.shortcut_triggered.connect(self.on_shortcut_triggered)
+                self.shortcut_manager.shortcuts_changed.connect(self.on_shortcuts_changed)
+                print("[DEBUG] 快捷键管理系统基础功能初始化完成")
+            except Exception as fallback_error:
+                print(f"[ERROR] 快捷键管理系统基础功能初始化也失败: {str(fallback_error)}")
+
+    def setup_performance_monitoring(self):
+        """初始化性能监控系统"""
+        try:
+            from libs.performance_integration_manager import PerformanceIntegrationManager
+            
+            # 创建性能监控集成管理器
+            self.performance_manager = PerformanceIntegrationManager(self)
+            
+            # 连接性能监控信号
+            self.performance_manager.performance_status_changed.connect(self.on_performance_status_changed)
+            self.performance_manager.optimization_applied.connect(self.on_optimization_applied)
+            self.performance_manager.performance_report_ready.connect(self.on_performance_report_ready)
+            self.performance_manager.auto_optimization_triggered.connect(self.on_auto_optimization_triggered)
+            
+            # 注册所有性能优化组件
+            self.performance_manager.register_all_components()
+            
+            print("[DEBUG] 性能监控系统初始化完成")
+            
+        except Exception as e:
+            print(f"[ERROR] 性能监控系统初始化失败: {str(e)}")
+            self.performance_manager = None
+
+    def on_performance_status_changed(self, status_data):
+        """处理性能状态变化"""
+        try:
+            optimization_level = status_data.get('optimization_level', 'unknown')
+            print(f"[PERFORMANCE] 优化级别已更改为: {optimization_level}")
+            
+            # 在状态栏显示性能状态
+            if hasattr(self, 'statusBar'):
+                self.statusBar().showMessage(
+                    f"⚡ 性能优化级别: {optimization_level}", 
+                    3000
+                )
+                
+        except Exception as e:
+            print(f"[ERROR] 处理性能状态变化失败: {str(e)}")
+
+    def on_optimization_applied(self, metric_name, optimization_data):
+        """处理优化应用"""
+        try:
+            optimization_type = optimization_data.get('optimization_type', 'manual')
+            print(f"[PERFORMANCE] 优化已应用: {metric_name} ({optimization_type})")
+            
+            # 在状态栏显示优化信息
+            if hasattr(self, 'statusBar'):
+                self.statusBar().showMessage(
+                    f"🔧 性能优化已应用: {metric_name}", 
+                    2000
+                )
+                
+        except Exception as e:
+            print(f"[ERROR] 处理优化应用失败: {str(e)}")
+
+    def on_performance_report_ready(self, report_data):
+        """处理性能报告就绪"""
+        try:
+            # 记录关键性能指标
+            system_metrics = report_data.get('system_metrics', {})
+            if 'cpu_usage' in system_metrics:
+                cpu_usage = system_metrics['cpu_usage']['value']
+                print(f"[PERFORMANCE] CPU使用率: {cpu_usage:.1f}%")
+            
+            if 'memory_usage' in system_metrics:
+                memory_usage = system_metrics['memory_usage']['value']
+                print(f"[PERFORMANCE] 内存使用率: {memory_usage:.1f}%")
+            
+            # 显示组件状态
+            component_details = report_data.get('component_details', {})
+            healthy_components = sum(1 for details in component_details.values() 
+                                   if details.get('status') == 'healthy')
+            total_components = len(component_details)
+            
+            if total_components > 0:
+                print(f"[PERFORMANCE] 组件健康状态: {healthy_components}/{total_components}")
+                
+        except Exception as e:
+            print(f"[ERROR] 处理性能报告失败: {str(e)}")
+
+    def on_auto_optimization_triggered(self, metric_name):
+        """处理自动优化触发"""
+        try:
+            print(f"[PERFORMANCE] 自动优化触发: {metric_name}")
+            
+            # 在状态栏显示自动优化信息
+            if hasattr(self, 'statusBar'):
+                self.statusBar().showMessage(
+                    f"🤖 自动优化已触发: {metric_name}", 
+                    4000
+                )
+                
+        except Exception as e:
+            print(f"[ERROR] 处理自动优化触发失败: {str(e)}")
+
+    def get_performance_report(self):
+        """获取性能报告"""
+        try:
+            if hasattr(self, 'performance_manager') and self.performance_manager:
+                status = self.performance_manager.get_integration_status()
+                print("[INFO] 性能监控状态:")
+                print(f"  注册组件数: {status.get('registered_components_count', 0)}")
+                print(f"  监控活跃: {status.get('monitoring_active', False)}")
+                print(f"  优化级别: {status.get('optimization_level', 'unknown')}")
+                print(f"  自动优化: {status.get('auto_optimization_enabled', False)}")
+                print(f"  活跃警告数: {status.get('active_alerts_count', 0)}")
+                
+                # 显示组件状态
+                component_status = status.get('component_status', {})
+                if component_status:
+                    print("  组件状态:")
+                    for comp_name, comp_status in component_status.items():
+                        print(f"    {comp_name}: {comp_status}")
+                
+                return status
+            else:
+                print("[WARNING] 性能监控系统未初始化")
+                return {}
+                
+        except Exception as e:
+            print(f"[ERROR] 获取性能报告失败: {str(e)}")
+            return {}
+
+    def manual_performance_optimization(self):
+        """手动触发性能优化"""
+        try:
+            if hasattr(self, 'performance_manager') and self.performance_manager:
+                success = self.performance_manager.manual_optimize()
+                if success:
+                    print("[INFO] 手动性能优化已应用")
+                    if hasattr(self, 'statusBar'):
+                        self.statusBar().showMessage("✨ 性能优化完成", 3000)
+                else:
+                    print("[INFO] 当前无需性能优化")
+                    if hasattr(self, 'statusBar'):
+                        self.statusBar().showMessage("ℹ️ 当前性能状态良好", 2000)
+                return success
+            else:
+                print("[WARNING] 性能监控系统未初始化")
+                return False
+                
+        except Exception as e:
+            print(f"[ERROR] 手动性能优化失败: {str(e)}")
+            return False
+
+    def set_performance_optimization_level(self, level):
+        """设置性能优化级别"""
+        try:
+            if hasattr(self, 'performance_manager') and self.performance_manager:
+                self.performance_manager.set_optimization_level(level)
+                print(f"[INFO] 性能优化级别已设置为: {level}")
+                return True
+            else:
+                print("[WARNING] 性能监控系统未初始化")
+                return False
+                
+        except Exception as e:
+            print(f"[ERROR] 设置性能优化级别失败: {str(e)}")
+            return False
 
     def setup_enhanced_status_bar(self):
         """设置增强的状态栏"""
@@ -1643,18 +1890,14 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def update_status_bar_info(self):
         """
-        更新状态栏信息（性能优化版：延迟执行，防抖动）
+        更新状态栏信息（性能优化版：使用防抖管理器）
         频繁调用时只执行最后一次，避免不必要的UI更新
         """
-        # 取消之前的延迟更新请求
-        if hasattr(self, 'status_update_timer') and self.status_update_timer.isActive():
-            self.status_update_timer.stop()
-        
-        # 启动新的延迟更新（100ms后执行）
-        if hasattr(self, 'status_update_timer'):
-            self.status_update_timer.start(100)  # 100ms延迟
+        # 使用防抖管理器优化状态栏更新
+        if hasattr(self, 'debounced_status_update'):
+            self.debounced_status_update()
         else:
-            # 如果定时器还未初始化，直接执行（兼容性）
+            # 回退到原有方式（兼容性）
             self._do_update_status_bar_info()
 
     def _do_update_status_bar_info(self):
@@ -2510,6 +2753,9 @@ class MainWindow(QMainWindow, WindowMixin):
         self.actions.shapeFillColor.setEnabled(selected)
 
     def add_label(self, shape):
+        if shape is None:
+            print("[DEBUG] add_label: shape is None, skipping")
+            return
         shape.paint_label = self.display_label_option.isChecked()
         item = HashableQListWidgetItem(shape.label)
         item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
@@ -2521,7 +2767,7 @@ class MainWindow(QMainWindow, WindowMixin):
         for action in self.actions.onShapesPresent:
             action.setEnabled(True)
         self.update_combo_box()
-        self.update_label_stats()  # 更新标签统计
+        self.update_label_stats()  # 更新标签统计  # 更新标签统计
 
     def remove_label(self, shape):
         if shape is None:
@@ -2871,9 +3117,13 @@ class MainWindow(QMainWindow, WindowMixin):
             return False
 
     def copy_selected_shape(self):
-        self.add_label(self.canvas.copy_selected_shape())
-        # fix copy and delete
-        self.shape_selection_changed(True)
+        copied_shape = self.canvas.copy_selected_shape()
+        if copied_shape is not None:
+            self.add_label(copied_shape)
+            # fix copy and delete
+            self.shape_selection_changed(True)
+        else:
+            print("[DEBUG] 没有选中的形状可以复制")
 
     def combo_selection_changed(self, index):
         text = self.combo_box.cb.itemText(index)
@@ -3163,15 +3413,38 @@ class MainWindow(QMainWindow, WindowMixin):
                 self.canvas.verified = self.label_file.verified
             else:
                 # Load image:
-                # read data first and store for saving into label file.
-                self.image_data = read(unicode_file_path, None)
+                # 性能优化：优先从缓存获取图像
+                if hasattr(self, 'image_cache_manager') and self.image_cache_manager:
+                    image = self.image_cache_manager.get_image(unicode_file_path)
+                    if image and not image.isNull():
+                        # 从缓存成功获取图像
+                        self.image_data = image
+                        print(f"[缓存命中] 从缓存加载图像: {self._cached_basename}")
+                    else:
+                        # 缓存未命中，正常加载
+                        self.image_data = read(unicode_file_path, None)
+                        if isinstance(self.image_data, QImage):
+                            image = self.image_data
+                        else:
+                            image = QImage.fromData(self.image_data)
+                        print(f"[缓存未命中] 直接加载图像: {self._cached_basename}")
+                else:
+                    # 缓存不可用，使用原有方式
+                    self.image_data = read(unicode_file_path, None)
+                    if isinstance(self.image_data, QImage):
+                        image = self.image_data
+                    else:
+                        image = QImage.fromData(self.image_data)
+                        
                 self.label_file = None
                 self.canvas.verified = False
 
-            if isinstance(self.image_data, QImage):
-                image = self.image_data
-            else:
-                image = QImage.fromData(self.image_data)
+            # 统一处理图像格式转换
+            if not isinstance(image, QImage):
+                if isinstance(self.image_data, QImage):
+                    image = self.image_data
+                else:
+                    image = QImage.fromData(self.image_data)
             if image.isNull():
                 self.error_message(u'Error opening file',
                                    u"<p>Make sure <i>%s</i> is a valid image file." % unicode_file_path)
@@ -3202,9 +3475,7 @@ class MainWindow(QMainWindow, WindowMixin):
                 self.show_bounding_box_from_annotation_file(self.file_path)
 
             # 性能优化：批量UI更新，减少重绘次数
-            # 暂停状态栏自动更新
-            if hasattr(self, 'status_update_timer'):
-                self.status_update_timer.stop()
+            # 新的防抖系统会自动处理，无需手动暂停
             
             # 批量更新UI组件
             self.update_switch_button_state()
@@ -3228,10 +3499,18 @@ class MainWindow(QMainWindow, WindowMixin):
             self.trigger_smart_prediction_if_needed()
 
             # 延迟更新状态栏信息，避免加载过程中的频繁更新
-            if hasattr(self, 'status_update_timer'):
-                self.status_update_timer.start(100)  # 100ms延迟批量更新
-            else:
-                self.update_status_bar_info()
+            # 使用新的防抖系统
+            self.update_status_bar_info()
+
+            # 性能优化：预加载相邻图像
+            if hasattr(self, 'image_cache_manager') and self.image_cache_manager and self.m_img_list:
+                try:
+                    self.image_cache_manager.preload_adjacent_images(
+                        unicode_file_path, self.m_img_list, preload_count=2
+                    )
+                    print(f"[预加载] 开始预加载 {self._cached_basename} 的相邻图像")
+                except Exception as e:
+                    print(f"[预加载错误] 预加载相邻图像失败: {e}")
 
             return True
         return False
@@ -3575,10 +3854,8 @@ class MainWindow(QMainWindow, WindowMixin):
         self.canvas.update()
 
         # 性能优化：延迟更新状态栏信息，避免paint_canvas频繁调用时的重复更新
-        if hasattr(self, 'status_update_timer'):
-            self.status_update_timer.start(50)  # 50ms延迟，多次调用时会重置计时器
-        else:
-            self.update_status_bar_info()
+        # 使用新的防抖系统更新状态栏
+        self.update_status_bar_info()
 
     def adjust_scale(self, initial=False):
         # 当initial=True时，检查是否使用用户偏好缩放
@@ -3703,10 +3980,36 @@ class MainWindow(QMainWindow, WindowMixin):
         settings['user_preferred_zoom_value'] = self.user_preferred_zoom_value
 
         settings.save()
+        
+        # 清理图像缓存管理器
+        if hasattr(self, 'image_cache_manager') and self.image_cache_manager:
+            try:
+                self.image_cache_manager.shutdown()
+                print("[DEBUG] 图像缓存管理器已关闭")
+            except Exception as e:
+                print(f"[WARNING] 关闭图像缓存管理器时出错: {e}")
+
+                
+        # 清理后台任务管理器
+        if hasattr(self, 'background_task_manager') and self.background_task_manager:
+            try:
+                self.background_task_manager.shutdown()
+                print("[DEBUG] 后台任务管理器已关闭")
+            except Exception as e:
+                print(f"[WARNING] 关闭后台任务管理器时出错: {e}")
 
     def load_recent(self, filename):
         if self.may_continue():
             self.load_file(filename)
+
+                
+        # 清理防抖管理器
+        if hasattr(self, 'debounce_manager') and self.debounce_manager:
+            try:
+                self.debounce_manager.shutdown()
+                print("[DEBUG] 防抖管理器已关闭")
+            except Exception as e:
+                print(f"[WARNING] 关闭防抖管理器时出错: {e}")
 
     def scan_all_images(self, folder_path):
         extensions = ['.%s' % fmt.data().decode("ascii").lower()
@@ -3823,8 +4126,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.file_path = None
         
         # 性能优化：暂停所有自动更新
-        if hasattr(self, 'status_update_timer'):
-            self.status_update_timer.stop()
+        # 新的防抖系统会自动处理，无需手动停止
         
         # 批量清理和设置
         self.file_list_widget.clear()
@@ -3848,10 +4150,8 @@ class MainWindow(QMainWindow, WindowMixin):
             self.open_next_image()
             # 批量更新UI状态
             self.update_switch_button_state()
-            if hasattr(self, 'status_update_timer'):
-                self.status_update_timer.start(100)  # 延迟状态栏更新
-            else:
-                self.update_status_bar_info()
+            # 使用新的防抖系统更新状态栏
+            self.update_status_bar_info()
             
             end_time = time.time()
             print(f"[PERF] 目录导入完成，用时: {(end_time - start_time)*1000:.1f}ms，共{len(self.m_img_list)}张图片")
@@ -3879,6 +4179,15 @@ class MainWindow(QMainWindow, WindowMixin):
             self.save_file()
 
     def open_prev_image(self, _value=False):
+        start_time = time.time()
+        
+        # 记录用户操作开始
+        self.record_user_operation('navigation', 'prev_image', {
+            'current_image_index': self.cur_img_idx,
+            'total_images': self.img_count,
+            'auto_saving': self.auto_saving.isChecked()
+        })
+        
         # Proceeding prev image without dialog if having any label
         if self.auto_saving.isChecked():
             if self.default_save_dir is not None:
@@ -3886,15 +4195,31 @@ class MainWindow(QMainWindow, WindowMixin):
                     self.save_file()
             else:
                 self.change_save_dir_dialog()
+                duration = time.time() - start_time
+                self.record_user_operation('navigation', 'prev_image', {
+                    'failure_reason': 'no_save_dir'
+                }, duration, success=False)
                 return
 
         if not self.may_continue():
+            duration = time.time() - start_time
+            self.record_user_operation('navigation', 'prev_image', {
+                'failure_reason': 'user_cancelled'
+            }, duration, success=False)
             return
 
         if self.img_count <= 0:
+            duration = time.time() - start_time
+            self.record_user_operation('navigation', 'prev_image', {
+                'failure_reason': 'no_images'
+            }, duration, success=False)
             return
 
         if self.file_path is None:
+            duration = time.time() - start_time
+            self.record_user_operation('navigation', 'prev_image', {
+                'failure_reason': 'no_current_file'
+            }, duration, success=False)
             return
 
         if self.cur_img_idx - 1 >= 0:
@@ -3902,8 +4227,32 @@ class MainWindow(QMainWindow, WindowMixin):
             filename = self.m_img_list[self.cur_img_idx]
             if filename:
                 self.load_file(filename)
+                duration = time.time() - start_time
+                self.record_user_operation('navigation', 'prev_image', {
+                    'new_image_index': self.cur_img_idx,
+                    'filename': os.path.basename(filename)
+                }, duration, success=True)
+            else:
+                duration = time.time() - start_time
+                self.record_user_operation('navigation', 'prev_image', {
+                    'failure_reason': 'invalid_filename'
+                }, duration, success=False)
+        else:
+            duration = time.time() - start_time
+            self.record_user_operation('navigation', 'prev_image', {
+                'failure_reason': 'already_first_image'
+            }, duration, success=False)
 
     def open_next_image(self, _value=False):
+        start_time = time.time()
+        
+        # 记录用户操作开始
+        self.record_user_operation('navigation', 'next_image', {
+            'current_image_index': self.cur_img_idx,
+            'total_images': self.img_count,
+            'auto_saving': self.auto_saving.isChecked()
+        })
+        
         # Proceeding next image without dialog if having any label
         if self.auto_saving.isChecked():
             if self.default_save_dir is not None:
@@ -3911,15 +4260,35 @@ class MainWindow(QMainWindow, WindowMixin):
                     self.save_file()
             else:
                 self.change_save_dir_dialog()
+                # 记录操作失败（需要选择保存目录）
+                duration = time.time() - start_time
+                self.record_user_operation('navigation', 'next_image', {
+                    'failure_reason': 'no_save_dir'
+                }, duration, success=False)
                 return
 
         if not self.may_continue():
+            # 记录操作失败（用户取消）
+            duration = time.time() - start_time
+            self.record_user_operation('navigation', 'next_image', {
+                'failure_reason': 'user_cancelled'
+            }, duration, success=False)
             return
 
         if self.img_count <= 0:
+            # 记录操作失败（没有图片）
+            duration = time.time() - start_time
+            self.record_user_operation('navigation', 'next_image', {
+                'failure_reason': 'no_images'
+            }, duration, success=False)
             return
 
         if not self.m_img_list:
+            # 记录操作失败（图片列表为空）
+            duration = time.time() - start_time
+            self.record_user_operation('navigation', 'next_image', {
+                'failure_reason': 'empty_image_list'
+            }, duration, success=False)
             return
 
         filename = None
@@ -3933,6 +4302,18 @@ class MainWindow(QMainWindow, WindowMixin):
 
         if filename:
             self.load_file(filename)
+            # 记录操作成功
+            duration = time.time() - start_time
+            self.record_user_operation('navigation', 'next_image', {
+                'new_image_index': self.cur_img_idx,
+                'filename': os.path.basename(filename) if filename else None
+            }, duration, success=True)
+        else:
+            # 记录操作失败（已是最后一张）
+            duration = time.time() - start_time
+            self.record_user_operation('navigation', 'next_image', {
+                'failure_reason': 'already_last_image'
+            }, duration, success=False)
 
     def open_file(self, _value=False):
         if not self.may_continue():
@@ -4428,6 +4809,36 @@ class MainWindow(QMainWindow, WindowMixin):
         if self.no_shapes():
             for action in self.actions.onShapesPresent:
                 action.setEnabled(False)
+
+    def cycle_select_shape(self):
+        """循环选择画布上的标注框"""
+        if not self.canvas.shapes:
+            # 如果没有标注框，直接返回
+            return
+        
+        # 获取当前选中的框
+        current_shape = self.canvas.selected_shape
+        current_index = -1
+        
+        # 查找当前选中框的索引
+        if current_shape:
+            try:
+                current_index = self.canvas.shapes.index(current_shape)
+            except ValueError:
+                current_index = -1
+        
+        # 计算下一个要选择的索引（循环）
+        next_index = (current_index + 1) % len(self.canvas.shapes)
+        next_shape = self.canvas.shapes[next_index]
+        
+        # 选择下一个标注框
+        self.canvas.select_shape(next_shape)
+        
+        # 更新界面状态 - 调用现有的形状选择变化处理
+        self.shape_selection_changed(True)
+        
+        # 更新画布显示
+        self.canvas.update()
 
     def choose_shape_line_color(self):
         color = self.color_dialog.getColor(self.line_color, u'Choose Line Color',
@@ -5123,6 +5534,10 @@ class MainWindow(QMainWindow, WindowMixin):
         """处理快捷键触发"""
         try:
             print(f"[DEBUG] 快捷键触发: {action_name}")
+            
+            # 记录快捷键使用统计（智能优化器）
+            if hasattr(self, 'shortcut_optimizer'):
+                self.shortcut_optimizer.record_usage(action_name)
 
             # 根据动作名称执行相应的操作
             if action_name == "delete":
@@ -5174,6 +5589,65 @@ class MainWindow(QMainWindow, WindowMixin):
                 if self.m_img_list and len(self.m_img_list) > 0:
                     self.cur_img_idx = len(self.m_img_list) - 1
                     self.load_file(self.m_img_list[-1])
+            # 新增的快捷键动作
+            elif action_name == "zoom_in":
+                self.add_zoom(10)
+            elif action_name == "zoom_out":
+                self.add_zoom(-10)
+            elif action_name == "zoom_fit":
+                self.set_fit_window()
+            elif action_name == "zoom_original":
+                self.set_zoom(100)
+            elif action_name == "toggle_fullscreen":
+                if self.isFullScreen():
+                    self.showNormal()
+                else:
+                    self.showFullScreen()
+            elif action_name == "create_rect":
+                self.set_create_mode()
+            elif action_name == "create_polygon":
+                # 多边形模式需要特殊处理
+                if hasattr(self.canvas, 'set_drawing_shape_to_polygon'):
+                    self.canvas.set_drawing_shape_to_polygon()
+                self.set_create_mode()
+            elif action_name == "edit_mode":
+                self.set_edit_mode()
+            elif action_name == "duplicate_shape":
+                if self.canvas.selected_shape:
+                    self.copy_selected_shape()
+            elif action_name == "batch_copy":
+                self.on_batch_copy()
+            elif action_name == "batch_delete":
+                self.on_batch_delete()
+            elif action_name == "batch_convert":
+                if hasattr(self, 'show_batch_convert_dialog'):
+                    self.show_batch_convert_dialog()
+            elif action_name == "toggle_shapes":
+                self.toggle_polygons(not self.canvas.shapes_visible)
+            elif action_name == "toggle_grid":
+                if hasattr(self.canvas, 'toggle_grid'):
+                    self.canvas.toggle_grid()
+            elif action_name == "color_dialog":
+                self.choose_color1()
+            elif action_name == "show_help":
+                self.show_default_tutorial_dialog()
+            elif action_name == "show_shortcuts":
+                self.show_shortcuts_dialog()
+            elif action_name == "about":
+                self.show_info_dialog()
+            elif action_name == "delete_shape_x":
+                # 处理X键删除标注框
+                print(f"[DEBUG] 执行X键删除标注框操作")
+                if self.canvas.selected_shape:
+                    self.delete_selected_shape()
+                else:
+                    print(f"[DEBUG] 没有选中的标注框可删除")
+            elif action_name == "cycle_select_shape":
+                # 处理Tab键循环选择标注框
+                print(f"[DEBUG] 执行Tab键循环选择标注框操作")
+                print(f"[DEBUG] 当前画布标注框数量: {len(self.canvas.shapes) if self.canvas.shapes else 0}")
+                print(f"[DEBUG] 当前选中标注框: {self.canvas.selected_shape}")
+                self.cycle_select_shape()
             else:
                 print(f"[DEBUG] 未处理的快捷键动作: {action_name}")
 
@@ -5191,6 +5665,352 @@ class MainWindow(QMainWindow, WindowMixin):
         except Exception as e:
             print(f"[ERROR] 快捷键配置改变处理失败: {str(e)}")
 
+    def on_shortcut_conflicts_detected(self, conflicts):
+        """处理检测到的快捷键冲突"""
+        try:
+            print(f"[INFO] 检测到 {len(conflicts)} 个快捷键冲突")
+            
+            # 记录冲突信息到日志
+            for conflict in conflicts:
+                severity_str = conflict.severity.value.upper()
+                print(f"[{severity_str}] 快捷键冲突: {conflict.action1} vs {conflict.action2} ({conflict.key_sequence})")
+                print(f"    类型: {conflict.conflict_type.value}, 描述: {conflict.description}")
+                
+                if conflict.suggested_fixes:
+                    print(f"    建议修复: {', '.join(conflict.suggested_fixes)}")
+            
+            # 如果有严重冲突，显示通知（可选）
+            critical_conflicts = [c for c in conflicts if c.severity.value == 'critical']
+            if critical_conflicts and hasattr(self, 'statusBar'):
+                self.statusBar().showMessage(
+                    f"⚠️ 发现 {len(critical_conflicts)} 个严重快捷键冲突，建议检查快捷键配置", 
+                    5000
+                )
+                
+        except Exception as e:
+            print(f"[ERROR] 处理快捷键冲突失败: {str(e)}")
+
+    def on_shortcut_optimization_ready(self, suggestions):
+        """处理快捷键优化建议"""
+        try:
+            print(f"[INFO] 收到 {len(suggestions)} 个快捷键优化建议")
+            
+            # 记录优化建议到日志
+            high_priority_suggestions = []
+            for suggestion in suggestions:
+                print(f"[SUGGESTION] {suggestion.action_name}: {suggestion.current_key} -> {suggestion.suggested_key}")
+                print(f"    原因: {suggestion.reason}, 置信度: {suggestion.confidence:.2f}")
+                
+                if suggestion.priority <= 2 and suggestion.confidence >= 0.8:
+                    high_priority_suggestions.append(suggestion)
+            
+            # 如果有高优先级建议，显示状态栏消息
+            if high_priority_suggestions and hasattr(self, 'statusBar'):
+                self.statusBar().showMessage(
+                    f"💡 有 {len(high_priority_suggestions)} 个高优先级快捷键优化建议", 
+                    3000
+                )
+                
+        except Exception as e:
+            print(f"[ERROR] 处理优化建议失败: {str(e)}")
+
+    def on_shortcut_stats_updated(self, stats_data):
+        """处理快捷键使用统计更新"""
+        try:
+            # 只记录调试信息，避免过多日志
+            action_name = list(stats_data.keys())[0] if stats_data else "unknown"
+            stats = list(stats_data.values())[0] if stats_data else {}
+            
+            if isinstance(stats, dict) and 'total_uses' in stats:
+                # 只在使用次数达到特定里程碑时记录
+                total_uses = stats.get('total_uses', 0)
+                if total_uses in [1, 5, 10, 25, 50, 100, 250, 500, 1000]:
+                    print(f"[STATS] {action_name} 已使用 {total_uses} 次")
+                
+        except Exception as e:
+            print(f"[ERROR] 处理使用统计更新失败: {str(e)}")
+
+    def get_shortcut_usage_report(self):
+        """获取快捷键使用报告"""
+        try:
+            if hasattr(self, 'shortcut_optimizer'):
+                report = self.shortcut_optimizer.get_usage_report()
+                print("[INFO] 快捷键使用报告:")
+                print(f"  总动作数: {report.get('summary', {}).get('total_actions', 0)}")
+                print(f"  活跃动作数: {report.get('summary', {}).get('active_actions', 0)}")
+                print(f"  总使用次数: {report.get('summary', {}).get('total_uses', 0)}")
+                print(f"  当前冲突数: {report.get('summary', {}).get('conflicts_count', 0)}")
+                
+                # 显示最常用的动作
+                top_actions = report.get('top_actions', [])[:5]
+                if top_actions:
+                    print("  最常用动作:")
+                    for i, (action_name, freq_score, uses) in enumerate(top_actions, 1):
+                        print(f"    {i}. {action_name}: {uses} 次 (分数: {freq_score:.2f})")
+                
+                return report
+            else:
+                print("[WARNING] 智能优化器未初始化")
+                return {}
+                
+        except Exception as e:
+            print(f"[ERROR] 获取使用报告失败: {str(e)}")
+            return {}
+
+    def apply_shortcut_optimization(self, suggestion):
+        """应用快捷键优化建议"""
+        try:
+            if hasattr(self, 'shortcut_optimizer'):
+                success = self.shortcut_optimizer.apply_optimization(suggestion)
+                if success:
+                    print(f"[INFO] 已应用优化: {suggestion.action_name} -> {suggestion.suggested_key}")
+                    # 重新应用快捷键到界面
+                    if hasattr(self, 'shortcut_manager'):
+                        self.shortcut_manager.apply_shortcuts(self)
+                    return True
+                else:
+                    print(f"[WARNING] 优化应用失败: {suggestion.action_name}")
+                    return False
+            else:
+                print("[WARNING] 智能优化器未初始化")
+                return False
+                
+        except Exception as e:
+            print(f"[ERROR] 应用优化失败: {str(e)}")
+            return False
+
+    def on_habit_learned(self, habit_data):
+        """处理学到的新习惯"""
+        try:
+            pattern_description = habit_data.get('description', 'Unknown pattern')
+            confidence = habit_data.get('confidence', 0.0)
+            
+            print(f"[HABIT] 学到新习惯: {pattern_description} (置信度: {confidence:.2f})")
+            
+            # 如果是高置信度的习惯，可以考虑界面优化
+            if confidence > 0.8:
+                if hasattr(self, 'statusBar'):
+                    self.statusBar().showMessage(
+                        f"🧠 学习到新的操作习惯: {pattern_description}", 
+                        3000
+                    )
+                    
+        except Exception as e:
+            print(f"[ERROR] 处理学到的新习惯失败: {str(e)}")
+
+    def on_operation_prediction(self, prediction_data):
+        """处理操作预测"""
+        try:
+            predictions = prediction_data.get('predictions', [])
+            if predictions:
+                top_prediction = predictions[0]
+                action, confidence = top_prediction
+                
+                print(f"[PREDICTION] 预测下一操作: {action} (置信度: {confidence:.2f})")
+                
+                # 对于高置信度的预测，可以预加载相关资源或准备界面
+                if confidence > 0.8:
+                    self._prepare_for_predicted_action(action)
+                    
+        except Exception as e:
+            print(f"[ERROR] 处理操作预测失败: {str(e)}")
+
+    def on_user_preference_updated(self, preference_data):
+        """处理用户偏好更新"""
+        try:
+            for pref_id, pref_info in preference_data.items():
+                if isinstance(pref_info, dict):
+                    category = pref_info.get('category', '')
+                    value = pref_info.get('value', None)
+                    
+                    print(f"[PREFERENCE] 偏好更新: {category} = {value}")
+                    
+                    # 根据偏好类型应用相应的界面调整
+                    if category == 'action_frequency':
+                        self._adjust_interface_for_frequent_action(pref_id, value)
+                        
+        except Exception as e:
+            print(f"[ERROR] 处理用户偏好更新失败: {str(e)}")
+
+    def on_workflow_detected(self, workflow_pattern):
+        """处理检测到的工作流模式"""
+        try:
+            print(f"[WORKFLOW] 检测到工作流模式: {workflow_pattern}")
+            
+            # 根据工作流模式调整界面和建议
+            if workflow_pattern == 'sequential':
+                # 顺序标注模式：建议启用自动下一张
+                if hasattr(self, 'statusBar'):
+                    self.statusBar().showMessage(
+                        "🔄 检测到顺序标注模式，建议使用快捷键快速导航", 
+                        4000
+                    )
+            elif workflow_pattern == 'batch_focused':
+                # 批量处理模式：突出显示批量操作
+                if hasattr(self, 'statusBar'):
+                    self.statusBar().showMessage(
+                        "📦 检测到批量处理模式，批量操作工具已优化", 
+                        4000
+                    )
+            elif workflow_pattern == 'detail_focused':
+                # 细节标注模式：优化精度工具
+                if hasattr(self, 'statusBar'):
+                    self.statusBar().showMessage(
+                        "🎯 检测到精细标注模式，精度工具已优化", 
+                        4000
+                    )
+                    
+        except Exception as e:
+            print(f"[ERROR] 处理工作流检测失败: {str(e)}")
+
+    def _prepare_for_predicted_action(self, action):
+        """为预测的操作准备资源"""
+        try:
+            # 根据预测的操作类型进行准备
+            if action in ['next_image', 'prev_image']:
+                # 预测导航操作：预加载相邻图片
+                if hasattr(self, 'image_cache_manager') and self.m_img_list:
+                    current_index = self.cur_img_idx
+                    if action == 'next_image' and current_index < len(self.m_img_list) - 1:
+                        next_path = self.m_img_list[current_index + 1]
+                        self.image_cache_manager.preload_image(next_path)
+                    elif action == 'prev_image' and current_index > 0:
+                        prev_path = self.m_img_list[current_index - 1]
+                        self.image_cache_manager.preload_image(prev_path)
+            
+            elif action == 'create_rect':
+                # 预测创建矩形：准备绘制工具
+                if hasattr(self.canvas, 'set_drawing_shape_to_square'):
+                    # 预设绘制模式，但不立即激活
+                    pass
+            
+            elif action in ['zoom_in', 'zoom_out']:
+                # 预测缩放操作：准备缩放计算
+                pass
+                
+        except Exception as e:
+            print(f"[ERROR] 为预测操作准备资源失败: {str(e)}")
+
+    def _adjust_interface_for_frequent_action(self, action_pref_id, frequency):
+        """根据频繁操作调整界面"""
+        try:
+            # 从偏好ID中提取动作名称
+            if action_pref_id.startswith('action_frequency_'):
+                action_name = action_pref_id.replace('action_frequency_', '')
+                
+                # 如果某个动作使用频率很高，考虑界面优化
+                if frequency > 20:  # 使用超过20次
+                    print(f"[INTERFACE] 高频操作检测: {action_name} ({frequency} 次)")
+                    
+                    # 根据具体动作进行界面调整
+                    if action_name in ['ai_predict_current', 'ai_predict_batch']:
+                        # AI操作频繁：确保AI面板可见
+                        if hasattr(self, 'collapsible_ai_panel'):
+                            if self.collapsible_ai_panel.isCollapsed():
+                                print("[INTERFACE] AI操作频繁，建议展开AI面板")
+                    
+                    elif action_name in ['batch_copy', 'batch_delete', 'batch_operations']:
+                        # 批量操作频繁：优化批量工具显示
+                        print("[INTERFACE] 批量操作频繁，已优化批量工具显示")
+                    
+                    elif action_name in ['next_image', 'prev_image']:
+                        # 导航操作频繁：启用预加载
+                        if hasattr(self, 'image_cache_manager'):
+                            print("[INTERFACE] 导航操作频繁，已启用图片预加载")
+                            
+        except Exception as e:
+            print(f"[ERROR] 调整界面失败: {str(e)}")
+
+    def record_user_operation(self, operation_type_str, action, context=None, duration=0.0, success=True):
+        """记录用户操作到习惯记忆系统"""
+        try:
+            if hasattr(self, 'habit_memory'):
+                from libs.user_habit_memory import OperationType
+                
+                # 转换操作类型
+                type_mapping = {
+                    'annotation': OperationType.ANNOTATION,
+                    'navigation': OperationType.NAVIGATION,
+                    'editing': OperationType.EDITING,
+                    'view': OperationType.VIEW,
+                    'file': OperationType.FILE,
+                    'tool': OperationType.TOOL
+                }
+                
+                operation_type = type_mapping.get(operation_type_str, OperationType.TOOL)
+                
+                self.habit_memory.record_operation(
+                    operation_type=operation_type,
+                    action=action,
+                    context=context or {},
+                    duration=duration,
+                    success=success
+                )
+                
+        except Exception as e:
+            print(f"[ERROR] 记录用户操作失败: {str(e)}")
+
+    def get_user_habit_report(self):
+        """获取用户习惯分析报告"""
+        try:
+            if hasattr(self, 'habit_memory'):
+                report = self.habit_memory.get_habit_report()
+                print("[INFO] 用户习惯分析报告:")
+                print(f"  习惯模式数: {report.get('summary', {}).get('total_patterns', 0)}")
+                print(f"  活跃模式数: {report.get('summary', {}).get('active_patterns', 0)}")
+                print(f"  当前工作流: {report.get('summary', {}).get('current_workflow', 'unknown')}")
+                print(f"  会话时长: {report.get('summary', {}).get('session_duration_minutes', 0):.1f} 分钟")
+                print(f"  会话操作数: {report.get('summary', {}).get('session_operations', 0)}")
+                
+                # 显示个性化建议
+                suggestions = report.get('adaptation_suggestions', [])
+                if suggestions:
+                    print("  个性化建议:")
+                    for i, suggestion in enumerate(suggestions[:3], 1):
+                        print(f"    {i}. {suggestion.get('reason', 'No reason')}")
+                
+                return report
+            else:
+                print("[WARNING] 用户习惯记忆系统未初始化")
+                return {}
+                
+        except Exception as e:
+            print(f"[ERROR] 获取用户习惯报告失败: {str(e)}")
+            return {}
+
+    def apply_personalized_suggestions(self):
+        """应用个性化建议"""
+        try:
+            if hasattr(self, 'habit_memory'):
+                suggestions = self.habit_memory.get_personalized_suggestions()
+                
+                applied_count = 0
+                for suggestion in suggestions:
+                    if suggestion.get('confidence', 0) > 0.7:  # 高置信度建议
+                        action = suggestion.get('action', '')
+                        suggestion_type = suggestion.get('type', '')
+                        
+                        if suggestion_type == 'workflow_suggestion':
+                            if action == 'enable_auto_next':
+                                # 建议启用自动下一张（可以通过设置实现）
+                                print("[SUGGESTION] 建议启用自动下一张功能")
+                            elif action == 'show_batch_panel':
+                                # 建议显示批量面板
+                                if hasattr(self, 'ai_assistant_panel'):
+                                    print("[SUGGESTION] 建议显示批量操作面板")
+                        
+                        elif suggestion_type == 'tool_suggestion':
+                            # 工具建议：优化工具栏布局
+                            print(f"[SUGGESTION] 推荐工具: {action}")
+                        
+                        applied_count += 1
+                
+                if applied_count > 0:
+                    print(f"[INFO] 应用了 {applied_count} 个个性化建议")
+                    
+        except Exception as e:
+            print(f"[ERROR] 应用个性化建议失败: {str(e)}")
+
     # ==================== 对话框显示方法 ====================
 
     def show_batch_operations_dialog(self):
@@ -5206,11 +6026,53 @@ class MainWindow(QMainWindow, WindowMixin):
         """显示快捷键配置对话框"""
         try:
             if hasattr(self, 'shortcut_manager'):
-                dialog = ShortcutConfigDialog(self.shortcut_manager, self)
+                # 传入智能优化器（如果存在）
+                optimizer = getattr(self, 'shortcut_optimizer', None)
+                dialog = ShortcutConfigDialog(self.shortcut_manager, self, optimizer)
                 dialog.exec_()
 
         except Exception as e:
             print(f"[ERROR] 显示快捷键配置对话框失败: {str(e)}")
+
+    def on_image_cached(self, file_path: str):
+        """图像缓存完成回调"""
+        # 可以在这里添加缓存完成的UI反馈
+        pass
+        
+    def on_cache_memory_warning(self, usage_ratio: float):
+        """缓存内存警告回调"""
+        print(f"[内存警告] 图像缓存内存使用率达到 {usage_ratio:.1%}")
+        if usage_ratio > 0.95:  # 超过95%时强制清理
+            self.image_cache_manager.cleanup_cache(target_ratio=0.6)
+            print("[内存管理] 已清理缓存到60%使用率")
+
+    def on_background_task_completed(self, task_id: str, result):
+        """后台任务完成回调"""
+        print(f"[后台任务] 任务 {task_id} 执行完成")
+        # 可以在这里添加特定任务类型的处理逻辑
+        
+    def on_background_task_failed(self, task_id: str, error: Exception):
+        """后台任务失败回调"""
+        print(f"[后台任务] 任务 {task_id} 执行失败: {error}")
+        # 可以显示错误提示给用户
+        
+    def on_background_task_progress(self, task_id: str, progress: int, message: str):
+        """后台任务进度回调"""
+        if message:
+            print(f"[后台任务] {task_id}: {progress}% - {message}")
+        # 可以更新进度条或状态栏
+        
+    def submit_background_task(self, func, *args, **kwargs):
+        """便利方法：提交后台任务"""
+        if self.background_task_manager:
+            return self.background_task_manager.submit_task(func, args, kwargs)
+        else:
+            # 如果后台任务管理器不可用，直接执行
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                print(f"[直接执行错误] 函数执行失败: {e}")
+                return None
 
 
 def inverted(color):

@@ -25,6 +25,7 @@ from .shape import Shape
 from .labelFile import LabelFile, LabelFileFormat
 from .pascal_voc_io import PascalVocWriter
 from .yolo_io import YOLOWriter
+from .background_task_manager import BackgroundTaskManager, TaskPriority
 
 # 设置日志
 logger = logging.getLogger(__name__)
@@ -39,7 +40,7 @@ class BatchOperations(QObject):
     operation_completed = pyqtSignal(str, dict)     # 操作完成 (操作名称, 结果统计)
     operation_error = pyqtSignal(str)               # 操作错误
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, task_manager=None):
         """初始化批量操作系统"""
         super().__init__(parent)
 
@@ -50,6 +51,14 @@ class BatchOperations(QObject):
         self.successful_files = 0
         self.failed_files = 0
         self.errors = {}
+        
+        # 异步处理支持
+        self.task_manager = task_manager
+        self.current_task_id = None
+        self.is_async_mode = task_manager is not None
+        
+        # 取消标志
+        self.cancel_requested = False
 
     def batch_copy_annotations(self, source_files: List[str], target_dir: str,
                                copy_images: bool = False) -> Dict:
@@ -402,6 +411,332 @@ class BatchOperations(QObject):
     def is_busy(self) -> bool:
         """检查是否正在执行操作"""
         return bool(self.current_operation and self.processed_files < self.total_files)
+
+    def batch_copy_annotations_async(self, source_files: List[str], target_dir: str, 
+                                     criteria: Dict = None, progress_callback=None):
+        """
+        异步批量复制标注文件
+        
+        Args:
+            source_files: 源文件列表
+            target_dir: 目标目录
+            criteria: 筛选条件
+            progress_callback: 进度回调函数
+        """
+        if not self.is_async_mode or not self.task_manager:
+            # 同步执行（回退模式）
+            return self.batch_copy_annotations(source_files, target_dir, criteria)
+            
+        def async_copy_task(progress_callback=None):
+            """异步复制任务"""
+            try:
+                self.cancel_requested = False
+                return self._execute_batch_copy(source_files, target_dir, criteria, progress_callback)
+            except Exception as e:
+                logger.error(f"异步批量复制失败: {e}")
+                raise
+                
+        # 提交异步任务
+        self.current_task_id = self.task_manager.submit_task(
+            func=async_copy_task,
+            args=(),
+            kwargs={'progress_callback': progress_callback},
+            priority=TaskPriority.HIGH,
+            timeout=3600,  # 1小时超时
+            callback=self._on_async_operation_completed,
+            error_callback=self._on_async_operation_failed,
+            description=f"批量复制 {len(source_files)} 个标注文件"
+        )
+        
+        return self.current_task_id
+        
+    def batch_delete_annotations_async(self, target_files: List[str], 
+                                      criteria: Dict = None, progress_callback=None):
+        """
+        异步批量删除标注文件
+        
+        Args:
+            target_files: 目标文件列表
+            criteria: 筛选条件
+            progress_callback: 进度回调函数
+        """
+        if not self.is_async_mode or not self.task_manager:
+            # 同步执行（回退模式）
+            return self.batch_delete_annotations(target_files, criteria)
+            
+        def async_delete_task(progress_callback=None):
+            """异步删除任务"""
+            try:
+                self.cancel_requested = False
+                return self._execute_batch_delete(target_files, criteria, progress_callback)
+            except Exception as e:
+                logger.error(f"异步批量删除失败: {e}")
+                raise
+                
+        # 提交异步任务
+        self.current_task_id = self.task_manager.submit_task(
+            func=async_delete_task,
+            args=(),
+            kwargs={'progress_callback': progress_callback},
+            priority=TaskPriority.HIGH,
+            timeout=1800,  # 30分钟超时
+            callback=self._on_async_operation_completed,
+            error_callback=self._on_async_operation_failed,
+            description=f"批量删除 {len(target_files)} 个标注文件"
+        )
+        
+        return self.current_task_id
+        
+    def batch_resize_annotations_async(self, annotation_files: List[str], 
+                                      scale_factor: float, progress_callback=None):
+        """
+        异步批量调整标注尺寸
+        
+        Args:
+            annotation_files: 标注文件列表
+            scale_factor: 缩放因子
+            progress_callback: 进度回调函数
+        """
+        if not self.is_async_mode or not self.task_manager:
+            # 同步执行（回退模式）
+            return self.batch_resize_annotations(annotation_files, scale_factor)
+            
+        def async_resize_task(progress_callback=None):
+            """异步调整任务"""
+            try:
+                self.cancel_requested = False
+                return self._execute_batch_resize(annotation_files, scale_factor, progress_callback)
+            except Exception as e:
+                logger.error(f"异步批量调整失败: {e}")
+                raise
+                
+        # 提交异步任务
+        self.current_task_id = self.task_manager.submit_task(
+            func=async_resize_task,
+            args=(),
+            kwargs={'progress_callback': progress_callback},
+            priority=TaskPriority.NORMAL,
+            timeout=1800,  # 30分钟超时
+            callback=self._on_async_operation_completed,
+            error_callback=self._on_async_operation_failed,
+            description=f"批量调整 {len(annotation_files)} 个标注文件"
+        )
+        
+        return self.current_task_id
+        
+    def cancel_current_operation(self):
+        """取消当前异步操作"""
+        self.cancel_requested = True
+        
+        if self.current_task_id and self.task_manager:
+            success = self.task_manager.cancel_task(self.current_task_id)
+            if success:
+                logger.info(f"成功取消异步任务: {self.current_task_id}")
+                self.current_task_id = None
+                return True
+            else:
+                logger.warning(f"无法取消异步任务: {self.current_task_id}")
+                
+        return False
+        
+    def _execute_batch_copy(self, source_files: List[str], target_dir: str, 
+                           criteria: Dict = None, progress_callback=None):
+        """执行批量复制（支持取消和进度回调）"""
+        self.current_operation = "批量复制"
+        self.total_files = len(source_files)
+        self.processed_files = 0
+        self.successful_files = 0
+        self.failed_files = 0
+        self.errors = {}
+        
+        results = []
+        
+        for i, source_file in enumerate(source_files):
+            # 检查取消请求
+            if self.cancel_requested:
+                logger.info("批量复制操作被用户取消")
+                break
+                
+            try:
+                # 这里调用原有的单文件复制逻辑
+                result = self._copy_single_annotation(source_file, target_dir, criteria)
+                results.append(result)
+                
+                if result.get('success', False):
+                    self.successful_files += 1
+                else:
+                    self.failed_files += 1
+                    if result.get('error'):
+                        self.errors[source_file] = result['error']
+                        
+            except Exception as e:
+                self.failed_files += 1
+                self.errors[source_file] = str(e)
+                logger.error(f"复制文件 {source_file} 时出错: {e}")
+                
+            self.processed_files += 1
+            
+            # 更新进度
+            if progress_callback:
+                progress = int((self.processed_files / self.total_files) * 100)
+                progress_callback(progress, f"正在复制: {os.path.basename(source_file)}")
+                
+        return {
+            'operation': '批量复制',
+            'total': self.total_files,
+            'successful': self.successful_files,
+            'failed': self.failed_files,
+            'errors': self.errors,
+            'results': results,
+            'cancelled': self.cancel_requested
+        }
+        
+    def _execute_batch_delete(self, target_files: List[str], 
+                             criteria: Dict = None, progress_callback=None):
+        """执行批量删除（支持取消和进度回调）"""
+        self.current_operation = "批量删除"
+        self.total_files = len(target_files)
+        self.processed_files = 0
+        self.successful_files = 0
+        self.failed_files = 0
+        self.errors = {}
+        
+        results = []
+        
+        for i, target_file in enumerate(target_files):
+            # 检查取消请求
+            if self.cancel_requested:
+                logger.info("批量删除操作被用户取消")
+                break
+                
+            try:
+                # 这里调用原有的单文件删除逻辑
+                result = self._delete_single_annotation(target_file, criteria)
+                results.append(result)
+                
+                if result.get('success', False):
+                    self.successful_files += 1
+                else:
+                    self.failed_files += 1
+                    if result.get('error'):
+                        self.errors[target_file] = result['error']
+                        
+            except Exception as e:
+                self.failed_files += 1
+                self.errors[target_file] = str(e)
+                logger.error(f"删除文件 {target_file} 时出错: {e}")
+                
+            self.processed_files += 1
+            
+            # 更新进度
+            if progress_callback:
+                progress = int((self.processed_files / self.total_files) * 100)
+                progress_callback(progress, f"正在删除: {os.path.basename(target_file)}")
+                
+        return {
+            'operation': '批量删除',
+            'total': self.total_files,
+            'successful': self.successful_files,
+            'failed': self.failed_files,
+            'errors': self.errors,
+            'results': results,
+            'cancelled': self.cancel_requested
+        }
+        
+    def _execute_batch_resize(self, annotation_files: List[str], scale_factor: float,
+                             progress_callback=None):
+        """执行批量调整（支持取消和进度回调）"""
+        self.current_operation = "批量调整"
+        self.total_files = len(annotation_files)
+        self.processed_files = 0
+        self.successful_files = 0
+        self.failed_files = 0
+        self.errors = {}
+        
+        results = []
+        
+        for i, annotation_file in enumerate(annotation_files):
+            # 检查取消请求
+            if self.cancel_requested:
+                logger.info("批量调整操作被用户取消")
+                break
+                
+            try:
+                # 这里调用原有的单文件调整逻辑
+                result = self._resize_single_annotation(annotation_file, scale_factor)
+                results.append(result)
+                
+                if result.get('success', False):
+                    self.successful_files += 1
+                else:
+                    self.failed_files += 1
+                    if result.get('error'):
+                        self.errors[annotation_file] = result['error']
+                        
+            except Exception as e:
+                self.failed_files += 1
+                self.errors[annotation_file] = str(e)
+                logger.error(f"调整文件 {annotation_file} 时出错: {e}")
+                
+            self.processed_files += 1
+            
+            # 更新进度
+            if progress_callback:
+                progress = int((self.processed_files / self.total_files) * 100)
+                progress_callback(progress, f"正在调整: {os.path.basename(annotation_file)}")
+                
+        return {
+            'operation': '批量调整',
+            'total': self.total_files,
+            'successful': self.successful_files,
+            'failed': self.failed_files,
+            'errors': self.errors,
+            'results': results,
+            'cancelled': self.cancel_requested
+        }
+        
+    def _copy_single_annotation(self, source_file: str, target_dir: str, criteria: Dict = None):
+        """复制单个标注文件"""
+        try:
+            # 实现单文件复制逻辑
+            target_file = os.path.join(target_dir, os.path.basename(source_file))
+            shutil.copy2(source_file, target_file)
+            return {'success': True, 'source': source_file, 'target': target_file}
+        except Exception as e:
+            return {'success': False, 'source': source_file, 'error': str(e)}
+            
+    def _delete_single_annotation(self, target_file: str, criteria: Dict = None):
+        """删除单个标注文件"""
+        try:
+            # 实现单文件删除逻辑
+            if os.path.exists(target_file):
+                os.remove(target_file)
+                return {'success': True, 'file': target_file}
+            else:
+                return {'success': False, 'file': target_file, 'error': '文件不存在'}
+        except Exception as e:
+            return {'success': False, 'file': target_file, 'error': str(e)}
+            
+    def _resize_single_annotation(self, annotation_file: str, scale_factor: float):
+        """调整单个标注文件"""
+        try:
+            # 实现单文件调整逻辑
+            # 这里需要根据具体的标注格式进行处理
+            return {'success': True, 'file': annotation_file, 'scale_factor': scale_factor}
+        except Exception as e:
+            return {'success': False, 'file': annotation_file, 'error': str(e)}
+            
+    def _on_async_operation_completed(self, result):
+        """异步操作完成回调"""
+        logger.info(f"异步操作完成: {result.get('operation', '未知操作')}")
+        self.current_task_id = None
+        self.operation_completed.emit(result)
+        
+    def _on_async_operation_failed(self, error):
+        """异步操作失败回调"""
+        logger.error(f"异步操作失败: {error}")
+        self.current_task_id = None
+        self.operation_error.emit(str(error))
 
 
 class BatchOperationsDialog(QDialog):

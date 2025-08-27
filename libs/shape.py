@@ -197,6 +197,7 @@ class Shape(object):
         if self.fill_color != Shape.fill_color:
             shape.fill_color = self.fill_color
         shape.difficult = self.difficult
+        shape.paint_label = self.paint_label  # 复制paint_label属性
         return shape
 
     def __len__(self):

@@ -77,6 +77,18 @@
       "recommended_epochs": 80,
       "confidence_level": "中",
       "timestamp": "2025-08-16 08:51:24"
+    },
+    {
+      "dataset_path": "./datasets\\training_dataset\\data.yaml",
+      "dataset_info": {
+        "total_images": 464,
+        "train_images": 370,
+        "val_images": 94,
+        "num_classes": 0
+      },
+      "recommended_epochs": 80,
+      "confidence_level": "中",
+      "timestamp": "2025-08-17 12:54:54"
     }
   ]
 }

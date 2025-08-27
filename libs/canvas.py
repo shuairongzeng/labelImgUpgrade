@@ -11,6 +11,7 @@ except ImportError:
 
 from libs.shape import Shape
 from libs.utils import distance
+from libs.optimized_canvas_renderer import OptimizedCanvasRenderer
 
 CURSOR_DEFAULT = Qt.ArrowCursor
 CURSOR_POINT = Qt.PointingHandCursor
@@ -62,12 +63,71 @@ class Canvas(QWidget):
         self.menus = (QMenu(), QMenu())
         # Set widget options.
         self.setMouseTracking(True)
-        self.setFocusPolicy(Qt.WheelFocus)
+        self.setFocusPolicy(Qt.StrongFocus)
         self.verified = False
         self.draw_square = False
 
         # initialisation for panning
         self.pan_initial_pos = QPoint()
+        
+        # 性能优化：初始化优化渲染器
+        try:
+            self.optimized_renderer = OptimizedCanvasRenderer(self)
+            self.use_optimized_rendering = True
+            print("[Canvas] 优化渲染器初始化成功")
+        except Exception as e:
+            print(f"[Canvas] 优化渲染器初始化失败: {e}")
+            self.optimized_renderer = None
+            self.use_optimized_rendering = False
+            
+        # 精确交互系统初始化
+        try:
+            from libs.precision_interaction_system import PrecisionInteractionSystem
+            from libs.precision_visual_feedback import PrecisionVisualFeedback, PrecisionFeedbackIntegrator
+            
+            self.precision_system = PrecisionInteractionSystem(self)
+            self.precision_visual_feedback = PrecisionVisualFeedback()
+            self.precision_integrator = PrecisionFeedbackIntegrator(
+                self.precision_system, 
+                self.precision_visual_feedback
+            )
+            
+            # 连接精确交互信号
+            self.precision_system.interaction_feedback.connect(self._on_precision_feedback)
+            
+            print("[Canvas] 精确交互系统初始化成功")
+        except Exception as e:
+            print(f"[Canvas] 精确交互系统初始化失败: {e}")
+            self.precision_system = None
+            self.precision_visual_feedback = None
+            self.precision_integrator = None
+
+    def _on_precision_feedback(self, feedback_message):
+        """处理精确交互反馈"""
+        try:
+            # 可以在这里处理来自精确交互系统的反馈
+            # 例如显示状态消息、更新UI等
+            pass
+        except Exception as e:
+            print(f"[Canvas] 处理精确交互反馈失败: {e}")
+
+    def configure_precision_system(self, **settings):
+        """配置精确交互系统"""
+        try:
+            if self.precision_system:
+                self.precision_system.configure_settings(**settings)
+                print(f"[Canvas] 精确交互系统配置已更新")
+        except Exception as e:
+            print(f"[Canvas] 配置精确交互系统失败: {e}")
+
+    def set_precision_mode(self, mode):
+        """设置精确交互模式"""
+        try:
+            if self.precision_system:
+                # 模式将在下次鼠标移动时更新
+                self.update()  # 触发重绘以更新视觉反馈
+        except Exception as e:
+            print(f"[Canvas] 设置精确交互模式失败: {e}")
 
     def set_drawing_color(self, qcolor):
         self.drawing_line_color = qcolor
@@ -256,6 +316,8 @@ class Canvas(QWidget):
             self.override_cursor(CURSOR_DEFAULT)
 
     def mousePressEvent(self, ev):
+        # 确保Canvas获得焦点以接收键盘事件
+        self.setFocus()
         pos = self.transform_pos(ev.pos())
 
         if ev.button() == Qt.LeftButton:
@@ -498,6 +560,30 @@ class Canvas(QWidget):
 
         p = self._painter
         p.begin(self)
+        
+        # 性能优化：使用优化渲染器
+        if self.use_optimized_rendering and self.optimized_renderer:
+            try:
+                success = self.optimized_renderer.render(p, event)
+                if success:
+                    # 设置背景色（验证状态）
+                    self._set_background_color()
+                    p.end()
+                    return
+                else:
+                    print("[Canvas] 优化渲染失败，回退到传统渲染")
+                    # 回退到传统渲染
+                    self.use_optimized_rendering = False
+            except Exception as e:
+                print(f"[Canvas] 优化渲染异常: {e}")
+                self.use_optimized_rendering = False
+        
+        # 传统渲染路径（作为后备）
+        self._render_traditional(p, event)
+        p.end()
+        
+    def _render_traditional(self, p, event):
+        """传统渲染方法（作为后备）"""
         p.setRenderHint(QPainter.Antialiasing)
         p.setRenderHint(QPainter.HighQualityAntialiasing)
         p.setRenderHint(QPainter.SmoothPixmapTransform)
@@ -542,6 +628,10 @@ class Canvas(QWidget):
             p.drawLine(int(self.prev_point.x()), 0, int(self.prev_point.x()), int(self.pixmap.height()))
             p.drawLine(0, int(self.prev_point.y()), int(self.pixmap.width()), int(self.prev_point.y()))
 
+        self._set_background_color()
+        
+    def _set_background_color(self):
+        """设置背景颜色（验证状态）"""
         self.setAutoFillBackground(True)
         if self.verified:
             pal = self.palette()
@@ -551,8 +641,6 @@ class Canvas(QWidget):
             pal = self.palette()
             pal.setColor(self.backgroundRole(), QColor(232, 232, 232, 255))
             self.setPalette(pal)
-
-        p.end()
 
     def transform_pos(self, point):
         """Convert from widget-logical coordinates to painter-logical coordinates."""
@@ -628,6 +716,8 @@ class Canvas(QWidget):
 
     def keyPressEvent(self, ev):
         key = ev.key()
+        print(f"[DEBUG] Canvas 键盘事件: {key} (Qt.Key_S={Qt.Key_S})")
+        
         if key == Qt.Key_Escape and self.current:
             print('ESC press')
             self.current = None
@@ -635,6 +725,30 @@ class Canvas(QWidget):
             self.update()
         elif key == Qt.Key_Return and self.can_close_shape():
             self.finalise()
+        elif key == Qt.Key_Tab:
+            print("[DEBUG] Canvas检测到Tab键按下！")
+            # 直接触发循环选择
+            try:
+                main_window = self.parent().window()
+                if hasattr(main_window, 'cycle_select_shape'):
+                    print("[DEBUG] 调用主窗口的cycle_select_shape方法")
+                    main_window.cycle_select_shape()
+                else:
+                    print("[DEBUG] 主窗口没有cycle_select_shape方法")
+            except Exception as e:
+                print(f"[DEBUG] Tab键处理出错: {e}")
+        elif key == Qt.Key_X:
+            print("[DEBUG] Canvas检测到X键按下！")
+            # 直接触发删除
+            try:
+                main_window = self.parent().window()
+                if hasattr(main_window, 'delete_selected_shape') and self.selected_shape:
+                    print("[DEBUG] 调用主窗口的delete_selected_shape方法")
+                    main_window.delete_selected_shape()
+                else:
+                    print("[DEBUG] 没有选中的标注框或主窗口没有delete_selected_shape方法")
+            except Exception as e:
+                print(f"[DEBUG] X键处理出错: {e}")
         elif key == Qt.Key_Left and self.selected_shape:
             self.move_one_pixel('Left')
         elif key == Qt.Key_Right and self.selected_shape:
@@ -708,11 +822,21 @@ class Canvas(QWidget):
     def load_pixmap(self, pixmap):
         self.pixmap = pixmap
         self.shapes = []
+        
+        # 性能优化：通知渲染器背景图像已改变
+        if self.use_optimized_rendering and self.optimized_renderer:
+            self.optimized_renderer.mark_all_dirty()
+            
         self.repaint()
 
     def load_shapes(self, shapes):
         self.shapes = list(shapes)
         self.current = None
+        
+        # 性能优化：通知渲染器形状已改变
+        if self.use_optimized_rendering and self.optimized_renderer:
+            self.optimized_renderer.mark_all_dirty()
+            
         self.repaint()
 
     def set_shape_visible(self, shape, value):
@@ -746,3 +870,26 @@ class Canvas(QWidget):
 
     def set_drawing_shape_to_square(self, status):
         self.draw_square = status
+
+    def get_rendering_performance_stats(self):
+        """获取渲染性能统计信息"""
+        if self.use_optimized_rendering and self.optimized_renderer:
+            return self.optimized_renderer.get_performance_stats()
+        return {"message": "优化渲染器未启用"}
+        
+    def reset_rendering_stats(self):
+        """重置渲染统计信息"""
+        if self.use_optimized_rendering and self.optimized_renderer:
+            self.optimized_renderer.reset_stats()
+            print("[Canvas] 已重置渲染统计信息")
+            
+    def set_rendering_options(self, **options):
+        """设置渲染选项"""
+        if self.use_optimized_rendering and self.optimized_renderer:
+            self.optimized_renderer.set_render_options(**options)
+        
+    def invalidate_render_cache(self):
+        """使渲染缓存失效"""
+        if self.use_optimized_rendering and self.optimized_renderer:
+            self.optimized_renderer.invalidate_cache()
+            self.repaint()

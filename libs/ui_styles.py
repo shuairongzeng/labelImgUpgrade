@@ -81,23 +81,25 @@ class UIShadows:
     XL = "0 8px 24px rgba(0, 0, 0, 0.15)"
 
 class UITransitions:
-    """统一的过渡动画"""
-    FAST = "0.15s ease-out"
-    NORMAL = "0.25s ease-out"
-    SLOW = "0.35s ease-out"
+    """统一的过渡动画（Qt兼容性处理）"""
+    # Qt样式表不支持CSS3的transition属性，这些值仅作为占位符
+    # 实际的动画效果通过QPropertyAnimation等Qt动画系统实现
+    FAST = ""  # Qt不支持CSS transition
+    NORMAL = ""
+    SLOW = ""
     
-    # 特殊动画效果
-    BOUNCE = "0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55)"
-    SMOOTH = "0.3s cubic-bezier(0.4, 0, 0.2, 1)"
-    ELASTIC = "0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)"
+    # 特殊动画效果（空字符串避免Unknown property警告）
+    BOUNCE = ""
+    SMOOTH = ""
+    ELASTIC = ""
     
-    # 组合动画属性
-    ALL_FAST = f"all {FAST}"
-    ALL_NORMAL = f"all {NORMAL}"
-    ALL_SLOW = f"all {SLOW}"
-    ALL_BOUNCE = f"all {BOUNCE}"
-    ALL_SMOOTH = f"all {SMOOTH}"
-    ALL_ELASTIC = f"all {ELASTIC}"
+    # 组合动画属性（空字符串）
+    ALL_FAST = ""
+    ALL_NORMAL = ""
+    ALL_SLOW = ""
+    ALL_BOUNCE = ""
+    ALL_SMOOTH = ""
+    ALL_ELASTIC = ""
 
 class ButtonStyles:
     """统一的按钮样式"""
@@ -115,24 +117,16 @@ class ButtonStyles:
                 font-weight: 600;
                 font-size: 13px;
                 min-height: 20px;
-                transition: {UITransitions.ALL_SMOOTH};
             }}
             QPushButton:hover {{
                 background-color: {UIColors.PRIMARY_DARK};
-                transform: translateY(-1px);
-                box-shadow: {UIShadows.MD};
             }}
             QPushButton:pressed {{
                 background-color: {UIColors.PRIMARY_DARK};
-                transform: translateY(0px);
-                box-shadow: {UIShadows.SM};
-                transition: {UITransitions.ALL_FAST};
             }}
             QPushButton:disabled {{
                 background-color: {UIColors.GREY_400};
                 color: {UIColors.GREY_600};
-                transform: none;
-                box-shadow: none;
             }}
         """
     
@@ -149,24 +143,16 @@ class ButtonStyles:
                 font-weight: 500;
                 font-size: 12px;
                 min-height: 16px;
-                transition: {UITransitions.ALL_SMOOTH};
             }}
             QPushButton:hover {{
                 background-color: {UIColors.WARNING_DARK};
-                transform: scale(1.02);
-                box-shadow: {UIShadows.MD};
             }}
             QPushButton:pressed {{
                 background-color: {UIColors.WARNING_DARK};
-                transform: scale(0.98);
-                box-shadow: {UIShadows.SM};
-                transition: {UITransitions.ALL_FAST};
             }}
             QPushButton:disabled {{
                 background-color: {UIColors.GREY_400};
                 color: {UIColors.GREY_600};
-                transform: none;
-                box-shadow: none;
             }}
         """
     
@@ -183,29 +169,19 @@ class ButtonStyles:
                 font-weight: 600;
                 font-size: 12px;
                 min-height: 16px;
-                transition: {UITransitions.ALL_SMOOTH};
             }}
             QPushButton:hover {{
                 background-color: #d32f2f;
                 border-color: #c62828;
-                transform: translateY(-1px);
-                box-shadow: 0 4px 8px rgba(244, 67, 54, 0.4);
-                animation: pulse 1.5s infinite;
             }}
             QPushButton:pressed {{
                 background-color: #c62828;
                 border-color: #b71c1c;
-                transform: translateY(0px);
-                box-shadow: {UIShadows.SM};
-                transition: {UITransitions.ALL_FAST};
             }}
             QPushButton:disabled {{
                 background-color: {UIColors.GREY_400};
                 color: {UIColors.GREY_600};
                 border-color: {UIColors.GREY_400};
-                transform: none;
-                box-shadow: none;
-                animation: none;
             }}
             @keyframes pulse {{
                 0% {{ box-shadow: 0 4px 8px rgba(244, 67, 54, 0.4); }}
@@ -227,27 +203,20 @@ class ButtonStyles:
                 font-weight: 500;
                 font-size: 12px;
                 min-height: 16px;
-                transition: {UITransitions.ALL_SMOOTH};
             }}
             QPushButton:hover {{
                 background-color: {UIColors.PRIMARY};
                 color: white;
-                transform: scale(1.05);
-                box-shadow: {UIShadows.MD};
             }}
             QPushButton:pressed {{
                 background-color: {UIColors.PRIMARY_DARK};
                 color: white;
                 border-color: {UIColors.PRIMARY_DARK};
-                transform: scale(1.02);
-                transition: {UITransitions.ALL_FAST};
             }}
             QPushButton:disabled {{
                 background-color: transparent;
                 color: {UIColors.GREY_500};
                 border-color: {UIColors.GREY_400};
-                transform: none;
-                box-shadow: none;
             }}
         """
     
@@ -264,24 +233,17 @@ class ButtonStyles:
                 font-size: 16px;
                 min-width: 32px;
                 min-height: 32px;
-                transition: {UITransitions.ALL_SMOOTH};
             }}
             QPushButton:hover {{
                 background-color: {UIColors.GREY_200};
                 color: {UIColors.PRIMARY};
-                transform: rotate(5deg) scale(1.1);
-                box-shadow: {UIShadows.SM};
             }}
             QPushButton:pressed {{
                 background-color: {UIColors.GREY_300};
-                transform: rotate(0deg) scale(1.05);
-                transition: {UITransitions.ALL_FAST};
             }}
             QPushButton:disabled {{
                 background-color: transparent;
                 color: {UIColors.GREY_400};
-                transform: none;
-                box-shadow: none;
             }}
         """
     
@@ -299,25 +261,16 @@ class ButtonStyles:
                 font-size: 16px;
                 min-width: 48px;
                 min-height: 48px;
-                transition: {UITransitions.ALL_BOUNCE};
-                box-shadow: {UIShadows.LG};
             }}
             QPushButton:hover {{
                 background-color: {UIColors.SUCCESS_DARK};
-                transform: scale(1.15) translateY(-2px);
-                box-shadow: {UIShadows.XL};
             }}
             QPushButton:pressed {{
                 background-color: {UIColors.SUCCESS_DARK};
-                transform: scale(1.05) translateY(0px);
-                box-shadow: {UIShadows.MD};
-                transition: {UITransitions.ALL_FAST};
             }}
             QPushButton:disabled {{
                 background-color: {UIColors.GREY_400};
                 color: {UIColors.GREY_600};
-                transform: none;
-                box-shadow: {UIShadows.SM};
             }}
         """
 
@@ -336,21 +289,16 @@ class InteractionStyles:
                 margin: 2px;
                 color: {UIColors.GREY_800};
                 border-left: 3px solid transparent;
-                transition: {UITransitions.ALL_SMOOTH};
             }}
             QListWidget::item:hover {{
                 background-color: {UIColors.GREY_100};
                 border-left: 3px solid {UIColors.PRIMARY};
-                transform: translateX(4px);
-                box-shadow: {UIShadows.SM};
             }}
             QListWidget::item:selected {{
                 background-color: {UIColors.PRIMARY_LIGHT};
                 color: {UIColors.PRIMARY_DARK};
                 border-left: 3px solid {UIColors.PRIMARY};
                 font-weight: 600;
-                transform: translateX(6px);
-                box-shadow: {UIShadows.MD};
             }}
         """
     
@@ -367,18 +315,15 @@ class InteractionStyles:
                 color: {UIColors.PRIMARY};
                 background-color: {UIColors.GREY_100};
                 min-height: 20px;
-                transition: {UITransitions.ALL_SMOOTH};
             }}
             QProgressBar:hover {{
                 border-color: {UIColors.PRIMARY_DARK};
-                box-shadow: {UIShadows.MD};
             }}
             QProgressBar::chunk {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
                     stop:0 {UIColors.SUCCESS}, stop:0.5 #66bb6a, stop:1 #81c784);
                 border-radius: {UIRadius.MD};
                 margin: 1px;
-                animation: progressFlow 2s ease-in-out infinite;
             }}
             @keyframes progressFlow {{
                 0% {{ background-position: 0% 50%; }}
@@ -398,23 +343,17 @@ class InteractionStyles:
                 padding: {UISpacing.SM} {UISpacing.MD};
                 color: {UIColors.GREY_800};
                 font-size: 13px;
-                transition: {UITransitions.ALL_SMOOTH};
             }}
             QLineEdit:hover {{
                 border-color: {UIColors.PRIMARY};
-                box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.1);
             }}
             QLineEdit:focus {{
                 border-color: {UIColors.PRIMARY};
-                box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.2);
-                transform: scale(1.02);
             }}
             QLineEdit:disabled {{
                 background-color: {UIColors.GREY_100};
                 border-color: {UIColors.GREY_300};
                 color: {UIColors.GREY_500};
-                transform: none;
-                box-shadow: none;
             }}
         """
     
@@ -429,15 +368,12 @@ class InteractionStyles:
                 padding: {UISpacing.SM} {UISpacing.MD};
                 min-width: 100px;
                 font-size: 12px;
-                transition: {UITransitions.ALL_SMOOTH};
             }}
             QComboBox:hover {{
                 border-color: {UIColors.PRIMARY};
-                box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.1);
             }}
             QComboBox:focus {{
                 border-color: {UIColors.PRIMARY};
-                box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.2);
             }}
             QComboBox::drop-down {{
                 border: none;
@@ -450,7 +386,6 @@ class InteractionStyles:
                 height: 6px;
                 border-top: none;
                 border-right: none;
-                transform: rotate(-45deg);
             }}
             QComboBox QAbstractItemView {{
                 border: 1px solid {UIColors.GREY_300};
@@ -473,12 +408,9 @@ class InteractionStyles:
                 padding-top: {UISpacing.MD};
                 font-weight: 600;
                 color: {UIColors.GREY_800};
-                transition: {UITransitions.ALL_SMOOTH};
             }}
             QGroupBox:hover {{
                 border-color: {UIColors.PRIMARY};
-                box-shadow: {UIShadows.SM};
-                transform: translateY(-1px);
             }}
             QGroupBox::title {{
                 subcontrol-origin: margin;
@@ -486,7 +418,6 @@ class InteractionStyles:
                 padding: 0 {UISpacing.SM};
                 background-color: white;
                 border-radius: {UIRadius.SM};
-                transition: {UITransitions.ALL_SMOOTH};
             }}
             QGroupBox:hover::title {{
                 color: {UIColors.PRIMARY};
@@ -509,8 +440,6 @@ class StatusIndicatorStyles:
                 padding: {UISpacing.XS} {UISpacing.SM};
                 font-weight: 600;
                 font-size: 12px;
-                transition: {UITransitions.ALL_SMOOTH};
-                animation: successPulse 2s ease-in-out infinite;
             }}
             @keyframes successPulse {{
                 0% {{ box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.7); }}
@@ -531,8 +460,6 @@ class StatusIndicatorStyles:
                 padding: {UISpacing.XS} {UISpacing.SM};
                 font-weight: 600;
                 font-size: 12px;
-                transition: {UITransitions.ALL_SMOOTH};
-                animation: warningShake 3s ease-in-out infinite;
             }}
             @keyframes warningShake {{
                 0%, 100% {{ transform: translateX(0); }}
@@ -553,8 +480,6 @@ class StatusIndicatorStyles:
                 padding: {UISpacing.XS} {UISpacing.SM};
                 font-weight: 600;
                 font-size: 12px;
-                transition: {UITransitions.ALL_SMOOTH};
-                animation: errorBlink 1s ease-in-out infinite;
             }}
             @keyframes errorBlink {{
                 0%, 50% {{ opacity: 1; }}
@@ -574,7 +499,6 @@ class StatusIndicatorStyles:
                 padding: {UISpacing.XS} {UISpacing.SM};
                 font-weight: 600;
                 font-size: 12px;
-                transition: {UITransitions.ALL_SMOOTH};
             }}
         """
 
@@ -593,13 +517,9 @@ class SpecialGroupBoxStyles:
                 padding-top: {UISpacing.MD};
                 font-weight: 600;
                 color: {UIColors.SUCCESS_DARK};
-                transition: {UITransitions.ALL_SMOOTH};
-                animation: primaryGlow 3s ease-in-out infinite;
             }}
             QGroupBox:hover {{
                 border-color: {UIColors.SUCCESS_DARK};
-                box-shadow: 0 0 15px rgba(76, 175, 80, 0.3);
-                transform: translateY(-1px);
             }}
             QGroupBox::title {{
                 subcontrol-origin: margin;
@@ -608,12 +528,10 @@ class SpecialGroupBoxStyles:
                 background-color: #f8fff8;
                 color: {UIColors.SUCCESS_DARK};
                 border-radius: {UIRadius.SM};
-                transition: {UITransitions.ALL_SMOOTH};
             }}
             QGroupBox:hover::title {{
                 background-color: {UIColors.SUCCESS_LIGHT};
                 color: {UIColors.SUCCESS_DARK};
-                box-shadow: {UIShadows.SM};
             }}
             @keyframes primaryGlow {{
                 0%, 100% {{ box-shadow: 0 0 5px rgba(76, 175, 80, 0.2); }}
@@ -633,14 +551,10 @@ class SpecialGroupBoxStyles:
                 padding-top: {UISpacing.MD};
                 font-weight: 600;
                 color: {UIColors.WARNING_DARK};
-                transition: {UITransitions.ALL_SMOOTH};
-                animation: dangerPulse 4s ease-in-out infinite;
             }}
             QGroupBox:hover {{
                 border-color: {UIColors.ERROR};
                 background-color: #ffebee;
-                box-shadow: 0 0 15px rgba(255, 152, 0, 0.3);
-                animation: dangerWarning 0.5s ease-in-out infinite;
             }}
             QGroupBox::title {{
                 subcontrol-origin: margin;
@@ -649,7 +563,6 @@ class SpecialGroupBoxStyles:
                 background-color: #fff8f0;
                 color: {UIColors.WARNING_DARK};
                 border-radius: {UIRadius.SM};
-                transition: {UITransitions.ALL_SMOOTH};
             }}
             QGroupBox:hover::title {{
                 background-color: {UIColors.WARNING_LIGHT};
@@ -680,7 +593,6 @@ class LabelStyles:
                 border-radius: {UIRadius.SM};
                 background-color: {UIColors.SUCCESS_LIGHT};
                 color: {UIColors.SECONDARY_DARK};
-                transition: all {UITransitions.FAST};
             }}
         """
     
@@ -694,7 +606,6 @@ class LabelStyles:
                 border-radius: {UIRadius.SM};
                 background-color: {UIColors.WARNING_LIGHT};
                 color: #ef6c00;
-                transition: all {UITransitions.FAST};
             }}
         """
     
@@ -708,7 +619,6 @@ class LabelStyles:
                 border-radius: {UIRadius.SM};
                 background-color: {UIColors.INFO_LIGHT};
                 color: {UIColors.PRIMARY_DARK};
-                transition: all {UITransitions.FAST};
             }}
         """
     
@@ -791,7 +701,6 @@ class GroupBoxStyles:
                 padding-top: {UISpacing.XL};
                 font-weight: 600;
                 color: {UIColors.SECONDARY_DARK};
-                transition: all {UITransitions.NORMAL};
             }}
             QGroupBox::title {{
                 subcontrol-origin: margin;
@@ -802,7 +711,6 @@ class GroupBoxStyles:
             }}
             QGroupBox:hover {{
                 border-color: {UIColors.SECONDARY_LIGHT};
-                box-shadow: {UIShadows.SM};
             }}
         """
     
@@ -818,7 +726,6 @@ class GroupBoxStyles:
                 padding-top: {UISpacing.XL};
                 font-weight: 600;
                 color: #e65100;
-                transition: all {UITransitions.NORMAL};
             }}
             QGroupBox::title {{
                 subcontrol-origin: margin;
@@ -829,7 +736,6 @@ class GroupBoxStyles:
             }}
             QGroupBox:hover {{
                 border-color: #ffb74d;
-                box-shadow: {UIShadows.SM};
             }}
         """
 
@@ -846,11 +752,9 @@ class ListStyles:
                 border-radius: {UIRadius.MD};
                 padding: {UISpacing.SM};
                 outline: none;
-                transition: border-color {UITransitions.FAST};
             }}
             QListWidget:focus {{
                 border-color: {UIColors.PRIMARY};
-                box-shadow: 0 0 0 2px {UIColors.INFO_LIGHT};
             }}
             QListWidget::item {{
                 background-color: transparent;
@@ -860,19 +764,16 @@ class ListStyles:
                 margin: {UISpacing.XS};
                 color: {UIColors.TEXT_PRIMARY};
                 border-left: 3px solid transparent;
-                transition: all {UITransitions.FAST};
             }}
             QListWidget::item:hover {{
                 background-color: {UIColors.GREY_100};
                 border-left: 3px solid {UIColors.PRIMARY};
-                transform: translateX(2px);
             }}
             QListWidget::item:selected {{
                 background-color: {UIColors.INFO_LIGHT};
                 color: {UIColors.PRIMARY_DARK};
                 border-left: 3px solid {UIColors.PRIMARY};
                 font-weight: 500;
-                box-shadow: {UIShadows.SM};
             }}
         """
 
@@ -889,20 +790,15 @@ class ToolButtonStyles:
                 padding: {UISpacing.MD};
                 margin: {UISpacing.XS};
                 background-color: transparent;
-                transition: all {UITransitions.FAST};
             }}
             QToolButton:hover {{
                 background-color: {UIColors.INFO_LIGHT};
-                transform: scale(1.05);
-                box-shadow: {UIShadows.SM};
             }}
             QToolButton:pressed {{
                 background-color: {UIColors.PRIMARY_LIGHT};
-                transform: scale(0.98);
             }}
             QToolButton:checked {{
                 background-color: {UIColors.PRIMARY};
                 color: {UIColors.TEXT_INVERSE};
-                box-shadow: {UIShadows.MD};
             }}
         """

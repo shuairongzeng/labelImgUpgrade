@@ -1,6 +1,6 @@
 version: '1.0'
 created_at: '2025-01-19T10:30:00'
-updated_at: '2025-08-15T22:48:11.449182'
+updated_at: '2025-08-17T22:01:49.779575'
 description: 从使用当前标注类别更新的类别配置 - 确保YOLO训练时类别顺序一致
 classes:
 - naiMa
@@ -16,61 +16,61 @@ classes:
 class_metadata:
   naiMa:
     description: 从使用当前标注类别导入的类别
-    added_at: '2025-08-15T22:48:11.449162'
+    added_at: '2025-08-17T22:01:49.779554'
     usage_count: 0
     original_id: 0
     source: 使用当前标注类别
   lingZhu:
     description: 从使用当前标注类别导入的类别
-    added_at: '2025-08-15T22:48:11.449165'
+    added_at: '2025-08-17T22:01:49.779557'
     usage_count: 0
     original_id: 1
     source: 使用当前标注类别
   guaiWu:
     description: 从使用当前标注类别导入的类别
-    added_at: '2025-08-15T22:48:11.449167'
+    added_at: '2025-08-17T22:01:49.779559'
     usage_count: 0
     original_id: 2
     source: 使用当前标注类别
   naiBa:
     description: 从使用当前标注类别导入的类别
-    added_at: '2025-08-15T22:48:11.449169'
+    added_at: '2025-08-17T22:01:49.779561'
     usage_count: 0
     original_id: 3
     source: 使用当前标注类别
   xiuLuo:
     description: 从使用当前标注类别导入的类别
-    added_at: '2025-08-15T22:48:11.449170'
+    added_at: '2025-08-17T22:01:49.779562'
     usage_count: 0
     original_id: 4
     source: 使用当前标注类别
   xiuLiShang:
     description: 从使用当前标注类别导入的类别
-    added_at: '2025-08-15T22:48:11.449172'
+    added_at: '2025-08-17T22:01:49.779564'
     usage_count: 0
     original_id: 5
     source: 使用当前标注类别
   lingQu:
     description: 从使用当前标注类别导入的类别
-    added_at: '2025-08-15T22:48:11.449174'
+    added_at: '2025-08-17T22:01:49.779566'
     usage_count: 0
     original_id: 6
     source: 使用当前标注类别
   door:
     description: 从使用当前标注类别导入的类别
-    added_at: '2025-08-15T22:48:11.449176'
+    added_at: '2025-08-17T22:01:49.779568'
     usage_count: 0
     original_id: 7
     source: 使用当前标注类别
   fanPai:
     description: 从使用当前标注类别导入的类别
-    added_at: '2025-08-15T22:48:11.449177'
+    added_at: '2025-08-17T22:01:49.779570'
     usage_count: 0
     original_id: 8
     source: 使用当前标注类别
   zaiCiTiaoZhan:
     description: 从使用当前标注类别导入的类别
-    added_at: '2025-08-15T22:48:11.449179'
+    added_at: '2025-08-17T22:01:49.779571'
     usage_count: 0
     original_id: 9
     source: 使用当前标注类别
