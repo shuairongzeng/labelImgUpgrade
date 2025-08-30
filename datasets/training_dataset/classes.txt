@@ -1,10 +1,4 @@
-naiMa
-lingZhu
-guaiWu
-naiBa
-xiuLuo
-xiuLiShang
-lingQu
-door
-fanPai
-zaiCiTiaoZhan
+bossIcon
+playerIcon
+weiZhiIcon
+fuHaoIcon

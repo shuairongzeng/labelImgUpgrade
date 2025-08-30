@@ -6,6 +6,23 @@
 
 import re
 
+# 在模块级别尝试导入pypinyin
+# 使用全局变量防止重置
+if '_PYPINYIN_AVAILABLE' not in globals():
+    _PYPINYIN_AVAILABLE = False
+    _lazy_pinyin = None
+    _Style = None
+
+try:
+    from pypinyin import lazy_pinyin, Style
+    _lazy_pinyin = lazy_pinyin
+    _Style = Style
+    _PYPINYIN_AVAILABLE = True
+except ImportError:
+    pass
+except Exception:
+    pass
+
 def has_chinese(text):
     """
     检查文本是否包含中文字符
@@ -40,29 +57,35 @@ def chinese_to_pinyin(text):
     if not text or not has_chinese(text):
         return text
     
-    try:
-        # 尝试导入pypinyin库
-        from pypinyin import lazy_pinyin, Style
-        
-        # 获取拼音列表，不带声调
-        pinyin_list = lazy_pinyin(text, style=Style.NORMAL)
-        
-        # 转换为驼峰格式：第一个词小写，后续词首字母大写
-        if pinyin_list:
-            result = pinyin_list[0].lower()
-            for pinyin in pinyin_list[1:]:
-                result += pinyin.capitalize()
-            return result
-        else:
-            return text
+    # 使用模块级别导入的pypinyin
+    global _PYPINYIN_AVAILABLE, _lazy_pinyin, _Style
+# 检查并确保pypinyin可用
+    if not _PYPINYIN_AVAILABLE or _lazy_pinyin is None:
+        try:
+            from pypinyin import lazy_pinyin, Style
+            _lazy_pinyin = lazy_pinyin
+            _Style = Style
+            _PYPINYIN_AVAILABLE = True
+        except Exception as e:
+            _PYPINYIN_AVAILABLE = False
+    
+    if _PYPINYIN_AVAILABLE:
+        try:
+            pinyin_list = _lazy_pinyin(text, style=_Style.NORMAL)
             
-    except ImportError:
-        # 如果pypinyin库未安装，使用简单的映射表作为备用方案
-        print("Warning: pypinyin library not found, using fallback mapping")
+            # 转换为驼峰格式：第一个词小写，后续词首字母大写
+            if pinyin_list:
+                result = pinyin_list[0].lower()
+                for pinyin in pinyin_list[1:]:
+                    result += pinyin.capitalize()
+                return result
+            else:
+                return text
+        except Exception:
+            return chinese_to_pinyin_fallback(text)
+    else:
+        # pypinyin不可用，使用fallback方案
         return chinese_to_pinyin_fallback(text)
-    except Exception as e:
-        print(f"Error converting Chinese to pinyin: {e}")
-        return text
 
 def chinese_to_pinyin_fallback(text):
     """
@@ -104,8 +127,9 @@ def chinese_to_pinyin_fallback(text):
         if char in chinese_pinyin_map:
             pinyin_words.append(chinese_pinyin_map[char])
         elif has_chinese(char):
-            # 对于未映射的中文字符，使用字符的unicode编码作为标识
-            pinyin_words.append(f"char{ord(char)}")
+            # 对于未映射的中文字符，直接保持原字符
+            # 这样至少用户能看到原始的中文，而不是编码
+            pinyin_words.append(char)
         else:
             # 非中文字符直接添加
             if pinyin_words:

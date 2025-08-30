@@ -450,6 +450,8 @@ class Canvas(QWidget):
         Moves a point x,y to within the boundaries of the canvas.
         :return: (x,y,snapped) where snapped is True if x or y were changed, False if not.
         """
+        if self.pixmap is None:
+            return x, y, False
         if x < 0 or x > self.pixmap.width() or y < 0 or y > self.pixmap.height():
             x = max(x, 0)
             y = max(y, 0)
@@ -649,6 +651,8 @@ class Canvas(QWidget):
     def offset_to_center(self):
         s = self.scale
         area = super(Canvas, self).size()
+        if self.pixmap is None:
+            return QPointF(0, 0)
         w, h = self.pixmap.width() * s, self.pixmap.height() * s
         aw, ah = area.width(), area.height()
         x = (aw - w) / (2 * s) if aw > w else 0
@@ -656,6 +660,8 @@ class Canvas(QWidget):
         return QPointF(x, y)
 
     def out_of_pixmap(self, p):
+        if self.pixmap is None:
+            return True
         w, h = self.pixmap.width(), self.pixmap.height()
         return not (0 <= p.x() <= w and 0 <= p.y() <= h)
 

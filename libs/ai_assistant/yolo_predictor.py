@@ -235,7 +235,6 @@ class YOLOPredictor(QObject):
         Returns:
             bool: 加载是否成功
         """
-        print(f"[DEBUG] YOLO预测器: 开始加载模型: {model_path}")
         try:
             logger.info(f"正在加载模型: {model_path}")
 

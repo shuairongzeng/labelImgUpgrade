@@ -25,3 +25,11 @@ class DefaultLabelComboBox(QWidget):
 
         layout.addWidget(self.cb)
         self.setLayout(layout)
+
+    def update_item_list(self, items):
+        """更新下拉框选项列表"""
+        self.items = items
+        self.cb.clear()
+        if items:
+            self.cb.addItems(items)
+        print(f"[DEBUG] 下拉框已更新，现在有 {len(items)} 个选项: {items}")

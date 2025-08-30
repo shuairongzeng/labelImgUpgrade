@@ -117,7 +117,7 @@ class ModelManager(QObject):
 
     def scan_models(self) -> List[str]:
         """
-        扫描可用模型
+        扫描可用模型（支持项目隔离）
 
         Returns:
             List[str]: 可用模型路径列表
@@ -125,28 +125,68 @@ class ModelManager(QObject):
         try:
             models = []
 
-            # 1. 扫描模型目录
-            for format_ext in self.SUPPORTED_FORMATS:
-                # 扫描根目录
-                models.extend(self.models_dir.glob(f"*{format_ext}"))
-                # 扫描custom子目录
-                models.extend(self.models_dir.glob(f"custom/*{format_ext}"))
+            # 1. 始终扫描共享模型目录
+            shared_models_dir = Path("projects/shared/models")
+            if shared_models_dir.exists():
+                for format_ext in self.SUPPORTED_FORMATS:
+                    shared_models = list(shared_models_dir.glob(f"*{format_ext}"))
+                    models.extend(shared_models)
+                    logger.info(f"在共享模型目录找到 {len(shared_models)} 个 {format_ext} 文件")
 
-            # 2. 扫描训练结果目录
-            runs_dir = Path("runs/train")
-            if runs_dir.exists():
-                logger.info("正在扫描训练结果目录...")
-                training_models = self._scan_training_results(runs_dir)
-                models.extend(training_models)
-                logger.info(f"在训练结果中找到 {len(training_models)} 个模型")
+            # 2. 扫描当前项目特定的模型目录（如果存在）
+            try:
+                from libs.project_manager import get_project_manager
+                manager = get_project_manager()
+                current_project = manager.get_current_project()
+                
+                if current_project:
+                    project_models_dir = Path(f"projects/{current_project}/models")
+                    if project_models_dir.exists():
+                        for format_ext in self.SUPPORTED_FORMATS:
+                            project_models = list(project_models_dir.glob(f"*{format_ext}"))
+                            models.extend(project_models)
+                            logger.info(f"在项目 '{current_project}' 模型目录找到 {len(project_models)} 个 {format_ext} 文件")
+                    
+                    # 3. 扫描当前项目的训练结果目录
+                    project_runs_dir = Path(f"projects/{current_project}/runs/train")
+                    if project_runs_dir.exists():
+                        logger.info(f"正在扫描项目 '{current_project}' 的训练结果目录...")
+                        training_models = self._scan_training_results(project_runs_dir)
+                        models.extend(training_models)
+                        logger.info(f"在项目训练结果中找到 {len(training_models)} 个模型")
+                        
+            except Exception as e:
+                logger.warning(f"获取项目信息失败，使用全局模型目录: {e}")
+                # 如果获取项目信息失败，回退到扫描全局目录
+                for format_ext in self.SUPPORTED_FORMATS:
+                    # 扫描根目录
+                    models.extend(self.models_dir.glob(f"*{format_ext}"))
+                    # 扫描custom子目录
+                    models.extend(self.models_dir.glob(f"custom/*{format_ext}"))
 
-            # 转换为字符串路径并排序
-            self.available_models = sorted([str(model) for model in models])
+                # 扫描全局训练结果目录
+                runs_dir = Path("runs/train")
+                if runs_dir.exists():
+                    logger.info("正在扫描全局训练结果目录...")
+                    training_models = self._scan_training_results(runs_dir)
+                    models.extend(training_models)
+                    logger.info(f"在全局训练结果中找到 {len(training_models)} 个模型")
+
+            # 转换为字符串路径、去重并按创建时间倒序排列
+            unique_models = list(set(str(model) for model in models))
+            # 按文件修改时间排序（最新的在前）
+            try:
+                self.available_models = sorted(unique_models, 
+                                             key=lambda x: os.path.getmtime(x) if os.path.exists(x) else 0,
+                                             reverse=True)
+            except Exception as e:
+                logger.warning(f"按时间排序失败，使用字母顺序排序: {e}")
+                self.available_models = sorted(unique_models)
 
             logger.info(f"总共扫描到 {len(self.available_models)} 个模型文件")
 
-            # 发送更新信号
-            self.models_updated.emit(self.available_models)
+            # 发送更新信号（发送详细的模型信息而不是路径字符串）
+            self.models_updated.emit(self.get_available_models())
 
             return self.available_models
 

@@ -308,19 +308,39 @@ class ImageCacheManager(QObject):
         if usage_ratio > 1.0:
             self.cleanup_cache(target_ratio=0.7)
             
-    def cleanup_cache(self, target_ratio: float = 0.5):
+    def cleanup_cache(self, target_ratio: float = 0.5, auto: bool = False):
         """
         清理缓存到目标使用率
         
         Args:
             target_ratio: 目标内存使用率 (0.0-1.0)
+            auto: 是否为自动清理（向后兼容参数）
+        
+        Returns:
+            float: 释放的内存大小(MB)
         """
         target_memory = self.max_memory_bytes * target_ratio
+        freed_memory = 0
         
         with QMutexLocker(self.cache_mutex):
+            initial_memory = self.current_memory_usage
             while (self.current_memory_usage > target_memory and 
-                   len(self.cache) > 0):
-                self._remove_oldest_entry()
+                   len(self.cache_times) > 0):
+                oldest_key = min(self.cache_times.keys(), 
+                               key=self.cache_times.get)
+                if oldest_key in self.cache:
+                    # 计算要释放的内存
+                    if oldest_key in self.memory_usage:
+                        freed_memory += self.memory_usage[oldest_key]
+                    
+                    del self.cache[oldest_key]
+                    del self.cache_times[oldest_key]
+                    if oldest_key in self.memory_usage:
+                        self.current_memory_usage -= self.memory_usage[oldest_key]
+                        del self.memory_usage[oldest_key]
+        
+        # 转换为MB返回
+        return freed_memory / (1024 * 1024)
                 
     def get_cache_stats(self) -> Dict[str, Any]:
         """获取缓存统计信息"""

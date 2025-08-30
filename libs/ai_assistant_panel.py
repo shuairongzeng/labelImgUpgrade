@@ -346,8 +346,13 @@ class CollapsibleAIPanel(QWidget):
 
         # 面板状态
         self.is_collapsed = False
-        self.expanded_width = 320
+        self.default_width = 320
+        self.min_width = 280
+        self.max_width = 600
         self.collapsed_width = 40
+        
+        # 从配置文件加载宽度设置
+        self.expanded_width = self.load_panel_width()
 
         # 初始化AI助手面板
         self.ai_panel = AIAssistantPanel(self)
@@ -368,6 +373,13 @@ class CollapsibleAIPanel(QWidget):
         # 连接AI助手面板的信号
         self.connect_ai_panel_signals()
 
+        # 设置初始尺寸策略和宽度
+        from PyQt5.QtWidgets import QSizePolicy
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self.setMinimumWidth(self.expanded_width)
+        self.setMaximumWidth(self.expanded_width)
+        self.setMinimumHeight(400)
+
     def setup_ui(self):
         """设置用户界面"""
         # 主布局
@@ -375,22 +387,120 @@ class CollapsibleAIPanel(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # 创建折叠按钮区域
-        self.collapse_button = QPushButton("🤖")
-        self.collapse_button.setFixedSize(40, 40)
-        self.collapse_button.setToolTip("点击展开/折叠AI助手")
+        # 创建拖拽手柄
+        self.resize_handle = QWidget()
+        self.resize_handle.setFixedWidth(6)
+        self.resize_handle.setCursor(Qt.SizeHorCursor)
+        self.resize_handle.setStyleSheet("""
+            QWidget {
+                background-color: #e0e0e0;
+                border-right: 1px solid #d0d0d0;
+            }
+            QWidget:hover {
+                background-color: #2196F3;
+            }
+        """)
+        
+        # 设置拖拽手柄的鼠标事件
+        self.resize_handle.mousePressEvent = self._on_resize_start
+        self.resize_handle.mouseMoveEvent = self._on_resize_drag  
+        self.resize_handle.mouseReleaseEvent = self._on_resize_end
+        
+        # 拖拽状态变量
+        self.is_resizing = False
+        self.resize_start_pos = None
+        self.resize_start_width = None
+
+        # 创建面板内容区域
+        self.panel_content = QWidget()
+        content_layout = QVBoxLayout(self.panel_content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
+        
+        # 创建标题栏
+        self.title_bar = QWidget()
+        self.title_bar.setFixedHeight(40)
+        self.title_bar.setStyleSheet("""
+            QWidget {
+                background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                            stop: 0 #2196f3, stop: 1 #1976d2);
+                border-top-left-radius: 0px;
+                border-top-right-radius: 0px;
+                border-bottom: 1px solid #1565C0;
+                margin: 0px;
+                padding: 0px;
+            }
+        """)
+        
+        # 标题栏布局
+        title_layout = QHBoxLayout(self.title_bar)
+        title_layout.setContentsMargins(12, 0, 8, 0)  # 移除垂直边距，让内容完全垂直居中
+        title_layout.setSpacing(8)
+        
+        # 左侧标题
+        self.title_label = QLabel("🤖 AI 助手")
+        self.title_label.setStyleSheet("""
+            QLabel {
+                color: white;
+                font-weight: 600;
+                font-size: 13px;
+                background: transparent;
+            }
+        """)
+        
+        # 右侧折叠按钮
+        self.collapse_button = QPushButton("◀")
+        self.collapse_button.setFixedSize(24, 24)
+        self.collapse_button.setToolTip("点击折叠AI助手")
+        self.collapse_button.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255, 255, 255, 0.2);
+                color: white;
+                border: 1px solid rgba(255, 255, 255, 0.3);
+                border-radius: 12px;
+                font-size: 10px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.3);
+                border: 1px solid rgba(255, 255, 255, 0.5);
+            }
+            QPushButton:pressed {
+                background-color: rgba(255, 255, 255, 0.1);
+            }
+        """)
         self.collapse_button.clicked.connect(self.toggle_collapse)
+        
+        # 添加到标题栏布局  
+        title_layout.addWidget(self.title_label)
+        title_layout.addStretch()  # 弹性空间
+        title_layout.addWidget(self.collapse_button)
+        
+        # 确保按钮和标题都垂直居中
+        title_layout.setAlignment(self.title_label, Qt.AlignVCenter)
+        title_layout.setAlignment(self.collapse_button, Qt.AlignVCenter)
 
         # 创建内容区域
         self.content_widget = QWidget()
         self.content_widget.setObjectName("content_widget")
-        content_layout = QVBoxLayout(self.content_widget)
-        content_layout.setContentsMargins(5, 5, 5, 5)
-        content_layout.addWidget(self.ai_panel)
+        self.content_widget.setStyleSheet("""
+            QWidget#content_widget {
+                background-color: white;
+                border-bottom-left-radius: 0px;
+                border-bottom-right-radius: 0px;
+            }
+        """)
+        inner_content_layout = QVBoxLayout(self.content_widget)
+        inner_content_layout.setContentsMargins(5, 5, 5, 5)
+        inner_content_layout.addWidget(self.ai_panel)
+
+        # 添加到面板内容布局
+        content_layout.addWidget(self.title_bar)
+        content_layout.addWidget(self.content_widget)
 
         # 添加到主布局
-        main_layout.addWidget(self.collapse_button)
-        main_layout.addWidget(self.content_widget)
+        main_layout.addWidget(self.resize_handle)
+        main_layout.addWidget(self.panel_content)
 
         # 设置初始大小
         self.setFixedWidth(self.expanded_width)
@@ -466,12 +576,26 @@ class CollapsibleAIPanel(QWidget):
             self.width_animation.setStartValue(self.expanded_width)
             self.width_animation.setEndValue(self.collapsed_width)
 
-            # 立即更新按钮
+            # 立即更新按钮和标题
             self.collapse_button.setText("▶")
             self.collapse_button.setToolTip("点击展开AI助手")
+            self.title_label.setText("🤖")
+            
+            # 在折叠状态下隐藏标题，并调整布局让按钮居中
+            self.title_label.hide()
+            # 获取标题栏布局并调整边距，让按钮居中显示
+            title_layout = self.title_bar.layout()
+            if title_layout:
+                # 计算居中需要的边距：(collapsed_width - button_width) / 2
+                button_width = self.collapse_button.width()
+                center_margin = max(0, (self.collapsed_width - button_width) // 2)
+                title_layout.setContentsMargins(center_margin, 0, center_margin, 0)
 
             # 开始动画
             self.width_animation.start()
+            
+            # 通知父窗口更新分割器
+            self.notify_parent_layout_change()
 
     def expand(self):
         """展开面板"""
@@ -485,12 +609,23 @@ class CollapsibleAIPanel(QWidget):
             # 动画完成后显示内容
             self.width_animation.finished.connect(self._on_expand_finished)
 
-            # 立即更新按钮
+            # 立即更新按钮和标题
             self.collapse_button.setText("◀")
             self.collapse_button.setToolTip("点击折叠AI助手")
+            self.title_label.setText("🤖 AI 助手")
+            
+            # 在展开状态下显示标题，并恢复原来的布局边距
+            self.title_label.show()
+            # 恢复原来的布局边距
+            title_layout = self.title_bar.layout()
+            if title_layout:
+                title_layout.setContentsMargins(12, 0, 8, 0)
 
             # 开始动画
             self.width_animation.start()
+            
+            # 通知父窗口更新分割器
+            self.notify_parent_layout_change()
 
     def _on_width_changed(self, value):
         """宽度动画值变化回调"""
@@ -511,6 +646,140 @@ class CollapsibleAIPanel(QWidget):
     def get_ai_panel(self):
         """获取AI助手面板实例"""
         return self.ai_panel
+
+    def load_panel_width(self):
+        """从配置文件加载面板宽度"""
+        try:
+            import json
+            import os
+            config_file = "config/user_habits.json"
+            if os.path.exists(config_file):
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    ai_panel_width = config.get('ui_settings', {}).get('ai_panel_width')
+                    if ai_panel_width and self.min_width <= ai_panel_width <= self.max_width:
+                        return ai_panel_width
+        except Exception as e:
+            print(f"[DEBUG] 加载AI面板宽度配置失败: {e}")
+        return self.default_width
+    
+    def save_panel_width(self, width):
+        """保存面板宽度到配置文件"""
+        try:
+            import json
+            import os
+            config_file = "config/user_habits.json"
+            config = {}
+            
+            # 加载现有配置
+            if os.path.exists(config_file):
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+            
+            # 确保ui_settings存在
+            if 'ui_settings' not in config:
+                config['ui_settings'] = {}
+            
+            # 保存宽度设置
+            config['ui_settings']['ai_panel_width'] = width
+            
+            # 写回文件
+            os.makedirs(os.path.dirname(config_file), exist_ok=True)
+            with open(config_file, 'w', encoding='utf-8') as f:
+                json.dump(config, f, indent=2, ensure_ascii=False)
+            
+            print(f"[DEBUG] AI面板宽度已保存: {width}px")
+            
+        except Exception as e:
+            print(f"[ERROR] 保存AI面板宽度配置失败: {e}")
+    
+    def set_panel_width(self, width):
+        """设置面板宽度并保存配置"""
+        # 限制宽度范围
+        width = max(self.min_width, min(width, self.max_width))
+        
+        if not self.is_collapsed:
+            self.expanded_width = width
+            # 只更新最大宽度，不强制设置固定宽度，让分割器管理
+            self.setMaximumWidth(width)
+            self.setMinimumWidth(width)
+            
+            # 保存到配置文件
+            self.save_panel_width(width)
+        
+        return width
+
+    def notify_parent_layout_change(self):
+        """通知父窗口布局发生变化"""
+        parent_widget = self.parent()
+        if parent_widget and hasattr(parent_widget, 'main_splitter'):
+            # 更新分割器的大小
+            try:
+                current_sizes = parent_widget.main_splitter.sizes()
+                if len(current_sizes) >= 2:
+                    total_width = sum(current_sizes)
+                    
+                    if self.is_collapsed:
+                        # 折叠状态：AI面板设置为最小宽度
+                        new_ai_width = self.collapsed_width
+                        new_main_width = total_width - new_ai_width
+                        self.setMinimumWidth(new_ai_width)
+                        self.setMaximumWidth(new_ai_width)
+                    else:
+                        # 展开状态：AI面板恢复到展开宽度
+                        new_ai_width = self.expanded_width
+                        new_main_width = total_width - new_ai_width
+                        self.setMinimumWidth(new_ai_width)
+                        self.setMaximumWidth(new_ai_width)
+                    
+                    # 更新分割器尺寸
+                    parent_widget.main_splitter.setSizes([new_main_width, new_ai_width])
+                    print(f"[DEBUG] 布局更新: 主区域={new_main_width}px, AI面板={new_ai_width}px")
+                    
+            except Exception as e:
+                print(f"[DEBUG] 更新分割器布局失败: {e}")
+
+    def _on_resize_start(self, event):
+        """开始拖拽调整大小"""
+        if event.button() == Qt.LeftButton and not self.is_collapsed:
+            self.is_resizing = True
+            self.resize_start_pos = event.globalPos()
+            self.resize_start_width = self.width()
+            event.accept()
+
+    def _on_resize_drag(self, event):
+        """拖拽过程中调整大小"""
+        if self.is_resizing and not self.is_collapsed:
+            # 计算鼠标移动距离
+            current_pos = event.globalPos()
+            delta_x = current_pos.x() - self.resize_start_pos.x()
+            
+            # 计算新宽度（向左拖拽减少宽度，向右拖拽增加宽度）
+            new_width = self.resize_start_width - delta_x
+            
+            # 限制宽度范围
+            new_width = max(self.min_width, min(new_width, self.max_width))
+            
+            # 应用新宽度
+            if new_width != self.width():
+                self.expanded_width = new_width
+                self.setFixedWidth(new_width)
+                self.setMaximumWidth(new_width)
+                self.setMinimumWidth(new_width)
+                
+                print(f"[DEBUG] 拖拽中: 宽度={new_width}px")
+            
+            event.accept()
+
+    def _on_resize_end(self, event):
+        """结束拖拽调整大小"""
+        if self.is_resizing:
+            self.is_resizing = False
+            # 保存最终宽度到配置
+            if not self.is_collapsed:
+                self.save_panel_width(self.expanded_width)
+                print(f"[DEBUG] 拖拽结束: 最终宽度={self.expanded_width}px")
+            event.accept()
 
 
 class AIAssistantPanel(QWidget):
@@ -546,6 +815,7 @@ class AIAssistantPanel(QWidget):
         self.current_predictions = []
         self.is_predicting = False
         self.is_smart_predicting = False  # 智能预测状态标记
+        self.is_auto_selecting = False  # 标记是否正在自动选择模型
 
         # 设置界面
         self.setup_ui()
@@ -1486,9 +1756,46 @@ class AIAssistantPanel(QWidget):
             logger.error(error_msg)
             self.update_status(error_msg, is_error=True)
 
-    def update_model_list(self, models: List[str]):
+    def reset_to_project_defaults(self):
+        """重置AI助手面板到项目默认状态"""
+        try:
+            logger.info("正在重置AI助手面板到项目默认状态...")
+            
+            # 重置模型选择到第一个可用模型（通常是yolov8n.pt）
+            if self.model_combo.count() > 0:
+                self.model_combo.setCurrentIndex(0)
+                
+            # 重置置信度阈值到默认值
+            self.confidence_slider.setValue(50)  # 50%
+            
+            # 重置批量预测相关状态
+            if hasattr(self, 'predict_batch_btn'):
+                self.predict_batch_btn.setText("🔄 批量预测")
+                self.predict_batch_btn.setEnabled(True)
+            
+            # 重置当前预测相关状态
+            if hasattr(self, 'predict_current_btn'):
+                self.predict_current_btn.setText("🤖 预测当前图像")
+                self.predict_current_btn.setEnabled(True)
+            
+            # 清空状态显示
+            self.update_status("AI助手已重置到项目默认状态")
+            
+            # 重置统计信息
+            if hasattr(self, 'stats_label'):
+                self.stats_label.setText("统计信息: 尚未进行预测")
+                
+            logger.info("AI助手面板重置完成")
+            
+        except Exception as e:
+            logger.error(f"重置AI助手面板失败: {e}")
+
+    def update_model_list(self, models):
         """更新模型下拉列表（优化版，支持智能推荐）"""
         try:
+            # 临时断开信号连接，避免在填充过程中触发模型变更
+            self.model_combo.currentTextChanged.disconnect()
+            
             self.model_combo.clear()
 
             if not models:
@@ -1500,83 +1807,121 @@ class AIAssistantPanel(QWidget):
 
             self.model_combo.setEnabled(True)
 
-            # 分类模型
-            training_models = []
-            custom_models = []
+            # 准备所有模型信息，统一按时间排序
+            all_models = []
             official_models = ['yolov8n.pt', 'yolov8s.pt',
                                'yolov8m.pt', 'yolov8l.pt', 'yolov8x.pt']
 
-            for model_path in models:
-                model_name = os.path.basename(model_path)
-                if model_name in official_models:
-                    # 官方模型直接添加
-                    self.model_combo.addItem(model_name, model_path)
-                elif 'runs/train' in model_path.replace('\\', '/'):
-                    training_models.append(model_path)
+            for model_info in models:
+                # 适配新的模型信息格式（字典）和旧的格式（字符串）
+                if isinstance(model_info, dict):
+                    model_path = model_info.get('path', '')
+                    model_name = model_info.get('name', os.path.basename(model_path))
                 else:
-                    custom_models.append(model_path)
+                    # 兼容旧的字符串格式
+                    model_path = model_info
+                    model_name = os.path.basename(model_path)
+                
+                # 统一存储模型信息，包括分类标记
+                base_name = os.path.basename(model_path)
+                model_entry = {
+                    'info': model_info,
+                    'path': model_path,
+                    'name': model_name,
+                    'base_name': base_name,
+                    'is_official': base_name in official_models,
+                    'is_training': 'runs/train' in model_path.replace('\\', '/'),
+                    'mtime': os.path.getmtime(model_path) if os.path.exists(model_path) else 0
+                }
+                all_models.append(model_entry)
 
-            # 获取推荐模型
+            # 按修改时间排序（最新的在前）- 这是关键的统一排序
+            all_models.sort(key=lambda x: x['mtime'], reverse=True)
+
+            # 获取推荐模型路径（仅针对训练模型）
             recommended_path = ""
-            if training_models:
-                # 获取所有训练模型的详细信息
-                training_models_info = []
-                for model_path in training_models:
-                    model_info = self._get_model_detailed_info(model_path)
-                    training_models_info.append(model_info)
-
+            training_models_info = [m['info'] for m in all_models if m['is_training']]
+            if training_models_info:
                 # 获取推荐信息
-                recommendation = self._get_model_recommendation(
-                    training_models_info)
+                detailed_training_info = []
+                for model_info in training_models_info:
+                    if isinstance(model_info, dict):
+                        detailed_training_info.append(model_info)
+                    else:
+                        detailed_info = self._get_model_detailed_info(model_info)
+                        detailed_training_info.append(detailed_info)
+                
+                recommendation = self._get_model_recommendation(detailed_training_info)
                 if recommendation:
-                    recommended_path = recommendation.get(
-                        'model_info', {}).get('path', '')
+                    recommended_path = recommendation.get('model_info', {}).get('path', '')
 
-            # 按训练时间排序（最新的在前）
-            training_models.sort(
-                key=lambda x: self._get_training_time(x), reverse=True)
-
-            # 添加训练结果模型
-            for model_path in training_models:
-                display_name = self._format_training_model_name(model_path)
-
-                # 为推荐模型添加标记
-                if model_path == recommended_path:
-                    display_name += " 🌟推荐"
-
-                # 创建工具提示
-                tooltip = self._create_model_tooltip(model_path)
-
-                # 添加项目
+            # 统一添加所有模型（已按时间排序）
+            for model_entry in all_models:
+                model_path = model_entry['path']
+                
+                if model_entry['is_official']:
+                    # 官方模型使用友好的显示名称
+                    display_name = model_entry['name']
+                elif model_entry['is_training']:
+                    # 训练模型使用格式化的显示名称
+                    display_name = self._format_training_model_name(model_path)
+                    # 为推荐模型添加标记
+                    if model_path == recommended_path:
+                        display_name += " 🌟推荐"
+                else:
+                    # 其他自定义模型
+                    display_name = f"📄 {model_entry['base_name']}"
+                
+                # 添加到下拉框
                 self.model_combo.addItem(display_name, model_path)
-
-                # 设置工具提示
-                item_index = self.model_combo.count() - 1
-                self.model_combo.setItemData(
-                    item_index, tooltip, 3)  # Qt.ToolTipRole = 3
-
-            # 添加其他自定义模型
-            for model_path in custom_models:
-                model_name = f"📄 {os.path.basename(model_path)}"
-                self.model_combo.addItem(model_name, model_path)
+                
+                # 为训练模型设置工具提示
+                if model_entry['is_training']:
+                    tooltip = self._create_model_tooltip(model_path)
+                    item_index = self.model_combo.count() - 1
+                    self.model_combo.setItemData(item_index, tooltip, 3)  # Qt.ToolTipRole = 3
 
             # 智能默认选择
             self._select_recommended_model(recommended_path)
-
+            
         except Exception as e:
             logger.error(f"更新模型列表失败: {str(e)}")
+        finally:
+            # 无论如何都要重新连接信号
+            self.model_combo.currentTextChanged.connect(self.on_model_changed)
 
     def _select_recommended_model(self, recommended_path: str):
         """智能选择推荐模型作为默认选项"""
         try:
+            # 首先尝试加载项目配置中保存的模型选择
+            saved_model_path = self.load_model_selection()
+            if saved_model_path:
+                # 查找保存的模型在下拉框中的位置（使用路径标准化比较）
+                saved_normalized = os.path.normpath(saved_model_path)
+                for i in range(self.model_combo.count()):
+                    item_data = self.model_combo.itemData(i)
+                    if item_data and os.path.normpath(item_data) == saved_normalized:
+                        # 设置选择（信号已断开，不会触发on_model_changed）
+                        self.model_combo.setCurrentIndex(i)
+                        logger.info(f"自动选择项目保存的模型: {os.path.basename(saved_model_path)}")
+                        # 手动触发模型加载（标记为自动选择避免保存）
+                        self.is_auto_selecting = True
+                        self.on_model_changed(self.model_combo.currentText())
+                        self.is_auto_selecting = False
+                        return
+                        
+            # 如果没有保存的模型，使用推荐模型
             if recommended_path:
                 # 查找推荐模型在下拉框中的位置
                 for i in range(self.model_combo.count()):
                     item_data = self.model_combo.itemData(i)
                     if item_data == recommended_path:
                         self.model_combo.setCurrentIndex(i)
-                        logger.info(
-                            f"自动选择推荐模型: {os.path.basename(recommended_path)}")
+                        logger.info(f"自动选择推荐模型: {os.path.basename(recommended_path)}")
+                        # 手动触发模型加载
+                        self.is_auto_selecting = True
+                        self.on_model_changed(self.model_combo.currentText())
+                        self.is_auto_selecting = False
                         return
 
             # 如果没有推荐模型，尝试选择默认模型
@@ -1586,12 +1931,20 @@ class AIAssistantPanel(QWidget):
                     if default_model in self.model_combo.itemText(i):
                         self.model_combo.setCurrentIndex(i)
                         logger.info(f"选择默认模型: {default_model}")
+                        # 手动触发模型加载
+                        self.is_auto_selecting = True
+                        self.on_model_changed(self.model_combo.currentText())
+                        self.is_auto_selecting = False
                         return
 
             # 如果都没有，选择第一个可用模型
             if self.model_combo.count() > 0:
                 self.model_combo.setCurrentIndex(0)
                 logger.info("选择第一个可用模型")
+                # 手动触发模型加载
+                self.is_auto_selecting = True
+                self.on_model_changed(self.model_combo.currentText())
+                self.is_auto_selecting = False
 
         except Exception as e:
             logger.error(f"选择推荐模型失败: {str(e)}")
@@ -6791,6 +7144,10 @@ pip install torch torchvision torchaudio
                         # 发送模型切换信号
                         self.model_changed.emit(model_path)
 
+                        # 保存模型选择到项目配置（仅在用户手动选择时）
+                        if not self.is_auto_selecting:
+                            self.save_model_selection(model_path, display_name)
+
                         logger.info(f"模型切换成功: {model_path}")
                     else:
                         self.update_status("❌ 模型加载失败", is_error=True)
@@ -6803,6 +7160,85 @@ pip install torch torchvision torchaudio
             logger.error(error_msg)
             self.update_status(error_msg, is_error=True)
             self.model_info_label.setText("❌ 模型切换失败")
+
+    def save_model_selection(self, model_path: str, display_name: str):
+        """保存模型选择到项目配置"""
+        try:
+            # 获取当前项目名称
+            from libs.project_manager import get_project_manager
+            project_name = get_project_manager().get_current_project()
+            if not project_name:
+                return
+                
+            # 构建AI设置文件路径
+            ai_settings_path = f"projects/{project_name}/configs/ai_settings.json"
+            
+            # 读取现有配置
+            import json
+            import os
+            ai_settings = {}
+            if os.path.exists(ai_settings_path):
+                try:
+                    with open(ai_settings_path, 'r', encoding='utf-8') as f:
+                        ai_settings = json.load(f)
+                except:
+                    ai_settings = {}
+            
+            # 更新模型选择配置
+            ai_settings['selected_model'] = {
+                'path': model_path,
+                'name': display_name,
+                'last_selected': True
+            }
+            
+            # 确保目录存在
+            os.makedirs(os.path.dirname(ai_settings_path), exist_ok=True)
+            
+            # 保存配置
+            with open(ai_settings_path, 'w', encoding='utf-8') as f:
+                json.dump(ai_settings, f, ensure_ascii=False, indent=2)
+                
+            logger.info(f"模型选择已保存到项目配置: {display_name}")
+            
+        except Exception as e:
+            logger.error(f"保存模型选择失败: {str(e)}")
+
+    def load_model_selection(self):
+        """从项目配置加载模型选择"""
+        try:
+            # 获取当前项目名称
+            from libs.project_manager import get_project_manager
+            project_name = get_project_manager().get_current_project()
+            if not project_name:
+                return None
+                
+            # 构建AI设置文件路径
+            ai_settings_path = f"projects/{project_name}/configs/ai_settings.json"
+            
+            if not os.path.exists(ai_settings_path):
+                return None
+                
+            # 读取配置
+            import json
+            with open(ai_settings_path, 'r', encoding='utf-8') as f:
+                ai_settings = json.load(f)
+                
+            selected_model = ai_settings.get('selected_model')
+            if selected_model and selected_model.get('last_selected'):
+                model_path = selected_model.get('path')
+                model_name = selected_model.get('name')
+                
+                # 验证模型文件是否存在
+                if model_path and os.path.exists(model_path):
+                    logger.info(f"从项目配置加载模型选择: {model_name}")
+                    return model_path
+                else:
+                    logger.warning(f"配置中的模型文件不存在: {model_path}")
+                    
+        except Exception as e:
+            logger.error(f"加载模型选择失败: {str(e)}")
+            
+        return None
 
     def on_smart_predict_changed(self, state):
         """智能预测复选框状态改变处理"""
@@ -7771,15 +8207,43 @@ pip install torch torchvision torchaudio
             return []
 
     def _copy_model_to_models_folder(self, model_path):
-        """将训练好的模型复制到 models 文件夹"""
+        """将训练好的模型复制到项目特定的 models 文件夹（支持项目隔离）"""
         try:
             import shutil
             from datetime import datetime
 
-            # 确保 models 文件夹存在
-            models_dir = os.path.join(os.getcwd(), "models")
-            custom_models_dir = os.path.join(models_dir, "custom")
-            os.makedirs(custom_models_dir, exist_ok=True)
+            # 获取当前项目信息
+            current_project = None
+            try:
+                from libs.project_manager import get_project_manager
+                manager = get_project_manager()
+                if manager:
+                    current_project = manager.get_current_project()
+                    if current_project:
+                        self._safe_append_log(f"🎯 检测到当前项目: {current_project}")
+                    else:
+                        self._safe_append_log("⚠️ 当前项目为空")
+                else:
+                    self._safe_append_log("⚠️ 项目管理器未初始化")
+            except Exception as e:
+                logger.warning(f"获取项目信息失败，使用全局目录: {e}")
+                self._safe_append_log(f"❌ 获取项目信息失败: {e}")
+                current_project = None
+
+            # 根据项目隔离原则确定目标目录
+            if current_project:
+                # 项目特定的模型目录
+                models_dir = os.path.join(os.getcwd(), "projects", current_project, "models")
+                self._safe_append_log(f"📁 使用项目模型目录: projects/{current_project}/models/")
+            else:
+                # 回退到全局目录（兼容性）
+                models_dir = os.path.join(os.getcwd(), "models")
+                custom_models_dir = os.path.join(models_dir, "custom")
+                models_dir = custom_models_dir
+                self._safe_append_log("📁 使用全局模型目录: models/custom/")
+
+            # 确保目标目录存在
+            os.makedirs(models_dir, exist_ok=True)
 
             # 生成新的模型文件名（包含时间戳）
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -7788,12 +8252,15 @@ pip install torch torchvision torchaudio
             new_model_name = f"trained_model_{timestamp}.pt"
 
             # 目标路径
-            target_path = os.path.join(custom_models_dir, new_model_name)
+            target_path = os.path.join(models_dir, new_model_name)
 
             # 复制模型文件
             shutil.copy2(model_path, target_path)
 
             self._safe_append_log(f"📂 模型已复制到: {target_path}")
+            
+            if current_project:
+                self._safe_append_log(f"✅ 项目 '{current_project}' 的训练模型已保存")
 
             # 刷新模型列表
             self.refresh_models()

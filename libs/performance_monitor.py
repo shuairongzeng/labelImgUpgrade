@@ -18,7 +18,7 @@ import threading
 from collections import defaultdict, deque
 from dataclasses import dataclass, asdict
 from enum import Enum
-from typing import Dict, List, Optional, Any, Callable
+from typing import Dict, List, Optional, Any, Callable, Tuple
 from PyQt5.QtCore import QObject, pyqtSignal, QTimer
 
 from .logger_config import get_logger

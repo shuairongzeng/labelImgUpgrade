@@ -1,0 +1,185 @@
+{
+  "description": "MCP服务器配置文件 - 包含对开发有用且不需要API key的服务器",
+  "version": "1.0.0",
+  "mcpServers": {
+    "filesystem": {
+      "name": "文件系统服务器",
+      "description": "安全的文件操作，支持可配置的访问控制",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "${workspaceFolder}"],
+      "features": ["文件读写", "目录操作", "安全访问控制"],
+      "installation": "npm install -g @modelcontextprotocol/server-filesystem",
+      "docker": {
+        "command": "docker",
+        "args": ["run", "-i", "--rm", "--mount", "type=bind,src=${workspaceFolder},dst=/projects/workspace", "mcp/filesystem", "/projects"]
+      }
+    },
+    "git": {
+      "name": "Git仓库服务器",
+      "description": "读取、搜索和操作Git仓库的工具",
+      "command": "uvx",
+      "args": ["mcp-server-git", "--repository", "${workspaceFolder}"],
+      "features": ["Git历史查询", "分支操作", "提交信息", "文件变更"],
+      "installation": "pip install mcp-server-git",
+      "alternatives": {
+        "pip": {
+          "command": "python",
+          "args": ["-m", "mcp_server_git", "--repository", "${workspaceFolder}"]
+        }
+      }
+    },
+    "memory": {
+      "name": "知识图谱内存服务器",
+      "description": "基于知识图谱的持久化内存系统",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"],
+      "features": ["知识图谱", "持久化存储", "关系管理", "实体存储"],
+      "installation": "npm install -g @modelcontextprotocol/server-memory",
+      "docker": {
+        "command": "docker",
+        "args": ["run", "-i", "-v", "claude-memory:/app/dist", "--rm", "mcp/memory"]
+      }
+    },
+    "time": {
+      "name": "时间服务器",
+      "description": "时间和时区转换功能",
+      "command": "uvx",
+      "args": ["mcp-server-time"],
+      "features": ["时区转换", "时间格式化", "日期计算"],
+      "installation": "pip install mcp-server-time",
+      "alternatives": {
+        "pip": {
+          "command": "python",
+          "args": ["-m", "mcp_server_time"]
+        },
+        "docker": {
+          "command": "docker",
+          "args": ["run", "-i", "--rm", "-e", "LOCAL_TIMEZONE", "mcp/time"]
+        }
+      }
+    },
+    "sequential-thinking": {
+      "name": "序列思维服务器",
+      "description": "通过思维序列进行动态和反思性问题解决",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+      "features": ["问题分解", "思维链", "反思性推理"],
+      "installation": "npm install -g @modelcontextprotocol/server-sequential-thinking",
+      "docker": {
+        "command": "docker",
+        "args": ["run", "--rm", "-i", "mcp/sequentialthinking"]
+      }
+    },
+    "fetch": {
+      "name": "网页获取服务器",
+      "description": "网页内容获取和转换，优化LLM使用",
+      "command": "uvx",
+      "args": ["mcp-server-fetch"],
+      "features": ["网页抓取", "内容转换", "HTML解析"],
+      "installation": "pip install mcp-server-fetch",
+      "alternatives": {
+        "pip": {
+          "command": "python",
+          "args": ["-m", "mcp_server_fetch"]
+        },
+        "docker": {
+          "command": "docker",
+          "args": ["run", "-i", "--rm", "mcp/fetch"]
+        }
+      }
+    },
+    "everything": {
+      "name": "全功能测试服务器",
+      "description": "包含提示、资源和工具的参考/测试服务器",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-everything"],
+      "features": ["测试工具", "示例提示", "资源管理"],
+      "installation": "npm install -g @modelcontextprotocol/server-everything",
+      "docker": {
+        "command": "docker",
+        "args": ["run", "-i", "--rm", "mcp/everything"]
+      }
+    }
+  },
+  "development_servers": {
+    "docker": {
+      "name": "Docker管理服务器",
+      "description": "管理Docker容器、镜像、卷和网络",
+      "features": ["容器管理", "镜像操作", "网络配置", "卷管理"],
+      "note": "需要Docker环境"
+    },
+    "mysql": {
+      "name": "MySQL数据库服务器",
+      "description": "MySQL数据库集成，支持模式检查和查询执行",
+      "features": ["数据库查询", "模式检查", "安全访问控制"],
+      "note": "需要MySQL数据库连接"
+    },
+    "postgres": {
+      "name": "PostgreSQL数据库服务器",
+      "description": "PostgreSQL数据库访问和模式检查",
+      "features": ["只读访问", "模式检查", "查询执行"],
+      "note": "需要PostgreSQL数据库连接"
+    },
+    "redis": {
+      "name": "Redis数据库服务器",
+      "description": "Redis键值存储操作",
+      "features": ["键值操作", "过期管理", "模式匹配"],
+      "note": "需要Redis服务器连接"
+    }
+  },
+  "installation_guide": {
+    "prerequisites": {
+      "node": "Node.js 18+ (用于NPX安装)",
+      "python": "Python 3.8+ (用于pip/uvx安装)",
+      "docker": "Docker (用于容器化部署)",
+      "uv": "uv包管理器 (推荐用于Python包)"
+    },
+    "installation_methods": {
+      "npx": "npx -y @modelcontextprotocol/server-[name]",
+      "pip": "pip install mcp-server-[name]",
+      "uvx": "uvx mcp-server-[name]",
+      "docker": "docker run -i --rm mcp/[name]"
+    }
+  },
+  "usage_examples": {
+    "claude_desktop": {
+      "config_file": "~/.config/claude/claude_desktop_config.json",
+      "example": {
+        "mcpServers": {
+          "filesystem": {
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/workspace"]
+          }
+        }
+      }
+    },
+    "vscode": {
+      "config_file": ".vscode/mcp.json",
+      "example": {
+        "servers": {
+          "filesystem": {
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-filesystem", "${workspaceFolder}"]
+          }
+        }
+      }
+    },
+    "zed": {
+      "config_file": "settings.json",
+      "example": {
+        "context_servers": {
+          "filesystem": {
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/workspace"]
+          }
+        }
+      }
+    }
+  },
+  "notes": {
+    "security": "所有服务器都支持安全访问控制",
+    "no_api_keys": "这些服务器不需要外部API密钥",
+    "local_only": "大部分服务器可以完全本地运行",
+    "workspace_variables": "${workspaceFolder} 会被IDE自动替换为当前工作目录"
+  }
+}

@@ -66,21 +66,33 @@ from libs.background_task_manager import BackgroundTaskManager, TaskPriority
 from libs.debounce_manager import DebounceManager, DebounceStrategy
 from libs.batch_progress_widget import BatchProgressWidget, BatchProgressDialog
 
+# 项目管理相关导入
+from libs.project_selector import ProjectSelectorToolBar
+from libs.project_management_dialog import ProjectManagementDialog
+from libs.project_manager import get_project_manager
+from libs.project_config_adapter import get_config_adapter
+
 
 def get_resource_path(relative_path):
-    """获取资源文件的绝对路径，兼容PyInstaller打包"""
+    """获取资源文件的完整路径"""
     try:
-        # PyInstaller创建临时文件夹，并将路径存储在_MEIPASS中
+        # PyInstaller创建的临时文件夹路径
         base_path = sys._MEIPASS
-        print(f"[DEBUG] PyInstaller环境检测到，使用_MEIPASS路径: {base_path}")
+        # 只在非项目模式下显示调试信息
+        if not hasattr(sys.modules[__name__], '_project_mode_active'):
+            print(f"[DEBUG] PyInstaller环境检测到，使用_MEIPASS路径: {base_path}")
     except AttributeError:
         # 开发环境中使用当前文件的目录
         base_path = os.path.dirname(__file__)
-        print(f"[DEBUG] 开发环境检测到，使用当前文件目录: {base_path}")
+        # 只在非项目模式下显示调试信息
+        if not hasattr(sys.modules[__name__], '_project_mode_active'):
+            print(f"[DEBUG] 开发环境检测到，使用当前文件目录: {base_path}")
 
     full_path = os.path.join(base_path, relative_path)
-    print(f"[DEBUG] 资源文件完整路径: {full_path}")
-    print(f"[DEBUG] 资源文件是否存在: {os.path.exists(full_path)}")
+    # 只在非项目模式下显示调试信息
+    if not hasattr(sys.modules[__name__], '_project_mode_active'):
+        print(f"[DEBUG] 资源文件完整路径: {full_path}")
+        print(f"[DEBUG] 资源文件是否存在: {os.path.exists(full_path)}")
 
     return full_path
 
@@ -511,9 +523,33 @@ class MainWindow(QMainWindow, WindowMixin):
         self.smart_predict_timer = None
         self.last_smart_predict_path = None
         
-        # 初始化类别配置管理器
+        # 初始化项目管理系统（在其他组件之前）
         try:
-            self.class_manager = ClassConfigManager("configs")
+            print("[DEBUG] 正在初始化项目管理系统...")
+            self.project_manager = get_project_manager()
+            self.config_adapter = get_config_adapter()
+            # 设置项目模式标志，抑制全局资源路径调试信息
+            sys.modules[__name__]._project_mode_active = True
+            print("[DEBUG] 项目管理系统初始化完成")
+        except Exception as e:
+            print(f"[ERROR] 项目管理系统初始化失败: {e}")
+            self.project_manager = None
+            # 确保项目模式标志未设置
+            if hasattr(sys.modules[__name__], '_project_mode_active'):
+                delattr(sys.modules[__name__], '_project_mode_active')
+            self.config_adapter = None
+            
+        # 初始化类别配置管理器（现在使用项目配置适配器）
+        try:
+            # 使用配置适配器获取当前项目的配置路径
+            if self.config_adapter:
+                current_project = self.project_manager.get_current_project()
+                config_path = self.project_manager.get_project_config_path(current_project)
+                self.class_manager = ClassConfigManager(str(config_path))
+            else:
+                # 回退到旧的配置方式
+                self.class_manager = ClassConfigManager("configs")
+                
             self.class_manager.load_class_config()
             print("[DEBUG] 类别配置管理器初始化成功")
         except Exception as e:
@@ -594,23 +630,40 @@ class MainWindow(QMainWindow, WindowMixin):
             self.debounce_manager = None
             self.debounced_status_update = self._do_update_status_bar_info
 
-        # Store predefined classes file path for saving
-        print(f"[DEBUG] 初始化预设类文件路径...")
-        print(
-            f"[DEBUG] default_prefdef_class_file参数: {default_prefdef_class_file}")
-
-        # 如果用户指定了自定义文件，则使用用户指定的文件
-        if default_prefdef_class_file and not default_prefdef_class_file.endswith(os.path.join("data", "predefined_classes.txt")):
-            self.predefined_classes_file = default_prefdef_class_file
-            print(f"[DEBUG] 使用用户指定的预设类文件: {self.predefined_classes_file}")
-        else:
-            # 使用持久化路径保存用户自定义标签
-            self.predefined_classes_file = get_persistent_predefined_classes_path()
-            print(f"[DEBUG] 使用持久化预设类文件路径: {self.predefined_classes_file}")
-
         # Load predefined classes to the list
         print(f"[DEBUG] 开始加载预设类文件...")
-        self.load_predefined_classes(self.predefined_classes_file)
+        
+        # 如果已经初始化了项目管理系统，使用项目的标签配置（确保完全项目隔离）
+        if self.config_adapter:
+            print(f"[DEBUG] 使用项目标签配置，确保完全项目隔离")
+            try:
+                classes = self.config_adapter.load_classes()
+                self.label_hist = classes
+                print(f"[DEBUG] 从项目配置加载了 {len(classes)} 个标签: {classes}")
+                # 项目模式下不设置全局预设类文件路径，确保完全隔离
+                self.predefined_classes_file = None
+                print(f"[DEBUG] 项目模式：不使用全局预设类文件，确保项目隔离")
+            except Exception as e:
+                print(f"[ERROR] 项目标签配置加载失败: {e}")
+                # 即使项目配置加载失败，也初始化空的标签列表，不回退到全局配置
+                self.label_hist = []
+                self.predefined_classes_file = None
+                print(f"[DEBUG] 项目模式下初始化空标签列表，保持项目隔离")
+        else:
+            # 没有项目管理系统时才使用全局预设标签作为后备方案
+            print(f"[DEBUG] 项目管理系统未初始化，使用全局预设标签")
+            print(f"[DEBUG] default_prefdef_class_file参数: {default_prefdef_class_file}")
+
+            # 如果用户指定了自定义文件，则使用用户指定的文件
+            if default_prefdef_class_file and not default_prefdef_class_file.endswith(os.path.join("data", "predefined_classes.txt")):
+                self.predefined_classes_file = default_prefdef_class_file
+                print(f"[DEBUG] 使用用户指定的预设类文件: {self.predefined_classes_file}")
+            else:
+                # 使用持久化路径保存用户自定义标签
+                self.predefined_classes_file = get_persistent_predefined_classes_path()
+                print(f"[DEBUG] 使用持久化预设类文件路径: {self.predefined_classes_file}")
+            
+            self.load_predefined_classes(self.predefined_classes_file)
 
         print(f"[DEBUG] 检查标签历史记录...")
         if self.label_hist:
@@ -619,7 +672,11 @@ class MainWindow(QMainWindow, WindowMixin):
             self.default_label = self.label_hist[0]
         else:
             print("[DEBUG] 标签历史记录为空")
-            print("Not find:/data/predefined_classes.txt (optional)")
+            # 只有在非项目模式下才显示资源文件未找到消息
+            if not self.config_adapter:
+                print("Not find:/data/predefined_classes.txt (optional)")
+            else:
+                print("[DEBUG] 项目模式下使用项目配置，不依赖全局资源文件")
 
         # Main widgets and related state.
         self.label_dialog = LabelDialog(parent=self, list_item=self.label_hist)
@@ -1080,6 +1137,18 @@ class MainWindow(QMainWindow, WindowMixin):
         reset_delete_confirmation = action('🔄 重置删除确认', self.reset_delete_confirmation_settings,
                                           None, 'reset_confirmation', '恢复删除确认对话框显示')
 
+        # 项目管理相关动作
+        project_manage = action('📁 项目管理', self.show_project_management_dialog,
+                               'Ctrl+Shift+P', 'project_manage', '管理项目')
+        project_new = action('➕ 新建项目', self.create_new_project,
+                            'Ctrl+Shift+N', 'project_new', '创建新项目')
+        project_switch = action('🔄 切换项目', self.show_project_selector_dialog,
+                               'Ctrl+Shift+S', 'project_switch', '快速切换项目')
+        
+        # 图片裁剪相关动作
+        image_crop = action('✂️ 图片裁剪', self.show_image_crop_dialog,
+                           'Ctrl+Shift+C', 'image_crop', '批量裁剪图片和标注文件')
+
         # Store actions for further handling.
         self.actions = Struct(save=save, save_format=save_format, saveAs=save_as, open=open, close=close, resetAll=reset_all, deleteImg=delete_image,
                               lineColor=color1, create=create, delete=delete, edit=edit, copy=copy,
@@ -1153,6 +1222,8 @@ class MainWindow(QMainWindow, WindowMixin):
         add_actions(self.menus.tools, (
             ai_predict_current, ai_predict_batch, ai_toggle_panel, None,
             batch_operations, batch_copy, batch_delete, None,
+            project_manage, project_new, project_switch, None,
+            image_crop, None,
             shortcut_config, reset_delete_confirmation))
 
         self.menus.file.aboutToShow.connect(self.update_file_menu)
@@ -1321,6 +1392,58 @@ class MainWindow(QMainWindow, WindowMixin):
         # 最终确保状态栏可见（在所有初始化完成后）
         QTimer.singleShot(100, self.ensure_status_bar_visible)
 
+    def on_project_switched(self, project_name: str):
+        """处理项目切换事件 - 完全重置到新项目的干净环境"""
+        try:
+            print(f"[DEBUG] 项目切换事件: {project_name} - 开始完全环境重置")
+            
+            # 1. 保存当前工作
+            if self.dirty:
+                self.save_file()
+            
+            # 2. 清空当前图像和工作状态
+            self.reset_workspace_state()
+            
+            # 3. 重新初始化类别配置管理器
+            if self.config_adapter and self.project_manager:
+                config_path = self.project_manager.get_project_config_path(project_name)
+                if self.class_manager:
+                    self.class_manager.config_dir = str(config_path)
+                    self.class_manager.load_class_config()
+                    print(f"[DEBUG] 类别配置管理器已切换到项目: {project_name}")
+            
+            # 4. 重新加载项目配置（类别、训练设置、快捷键等）
+            self.reload_project_configs(project_name)
+            
+            # 5. 重新扫描AI助手模型（确保项目隔离）
+            if hasattr(self, 'ai_assistant_panel'):
+                try:
+                    self.ai_assistant_panel.refresh_models()
+                    self.ai_assistant_panel.reset_to_project_defaults()
+                    print(f"[DEBUG] AI助手模型列表已更新并重置")
+                except Exception as e:
+                    print(f"[WARN] 更新AI助手模型列表失败: {e}")
+            
+            # 6. 重置UI状态到项目默认值
+            self.reset_ui_to_project_defaults(project_name)
+            
+            # 7. 更新状态栏显示当前项目
+            if hasattr(self, 'statusBar'):
+                project_display_name = project_name
+                if self.project_manager:
+                    metadata = self.project_manager.get_project_metadata(project_name)
+                    if metadata:
+                        project_display_name = metadata.display_name
+                        
+                self.statusBar().showMessage(f"已切换到项目: {project_display_name}", 3000)
+            
+            print(f"[DEBUG] 项目切换完成: {project_name} - 环境完全重置")
+            
+        except Exception as e:
+            print(f"[ERROR] 项目切换失败: {e}")
+            if hasattr(self, 'statusBar'):
+                self.statusBar().showMessage(f"项目切换失败: {str(e)}", 5000)
+
     def keyReleaseEvent(self, event):
         if event.key() == Qt.Key_Control:
             self.canvas.set_drawing_shape_to_square(False)
@@ -1441,22 +1564,27 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def setup_main_layout_with_ai_panel(self):
         """设置包含AI助手面板的主窗口布局"""
-        # 创建新的中央容器
+        # 获取当前的中央部件（包含主工作区域和快捷面板）
+        current_central = self.centralWidget()
+
+        # 创建简单的水平布局容器
         main_container = QWidget()
         main_container_layout = QHBoxLayout(main_container)
         main_container_layout.setContentsMargins(0, 0, 0, 0)
         main_container_layout.setSpacing(0)
 
-        # 获取当前的中央部件（包含主工作区域和快捷面板）
-        current_central = self.centralWidget()
-
-        # 添加到新布局
-        main_container_layout.addWidget(current_central, 1)  # 主区域占据剩余空间
-        main_container_layout.addWidget(
-            self.collapsible_ai_panel, 0)  # AI面板固定宽度
+        # 添加主要内容区域和AI面板
+        main_container_layout.addWidget(current_central, 1)  # 主区域可伸缩
+        main_container_layout.addWidget(self.collapsible_ai_panel, 0)  # AI面板固定大小
 
         # 设置新的中央部件
         self.setCentralWidget(main_container)
+        
+        print("[DEBUG] 使用自定义拖拽手柄的AI面板布局已设置")
+        
+    def on_splitter_moved(self, pos, index):
+        """处理分割器移动事件 - 已弃用，使用自定义拖拽手柄"""
+        pass
 
     def show_help_dialog(self):
         """显示帮助对话框"""
@@ -2419,6 +2547,25 @@ class MainWindow(QMainWindow, WindowMixin):
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         main_toolbar.addWidget(spacer)
+
+        # 项目管理工具组
+        try:
+            project_group = QWidget()
+            project_layout = QHBoxLayout(project_group)
+            project_layout.setContentsMargins(8, 4, 8, 4)
+            project_layout.setSpacing(4)
+
+            # 项目选择器组件
+            self.project_selector_toolbar = ProjectSelectorToolBar()
+            self.project_selector_toolbar.project_switched.connect(self.on_project_switched)
+            project_layout.addWidget(self.project_selector_toolbar)
+
+            main_toolbar.addWidget(project_group)
+            main_toolbar.addSeparator()
+            
+            print("[DEBUG] 项目选择器已添加到工具栏")
+        except Exception as e:
+            print(f"[ERROR] 添加项目选择器到工具栏失败: {e}")
 
         # 模式切换组
         mode_group = QWidget()
@@ -4891,18 +5038,22 @@ class MainWindow(QMainWindow, WindowMixin):
             self._load_classes_from_file(predef_classes_file)
         else:
             print(f"[DEBUG] 持久化文件不存在，尝试从初始资源文件加载默认标签...")
-            # 尝试从初始资源文件加载默认标签
-            initial_file = get_initial_predefined_classes_path()
-            print(f"[DEBUG] 初始资源文件路径: {initial_file}")
+            # 只有在非项目模式下才尝试从初始资源文件加载
+            if not hasattr(self, 'config_adapter') or self.config_adapter is None:
+                # 尝试从初始资源文件加载默认标签
+                initial_file = get_initial_predefined_classes_path()
+                print(f"[DEBUG] 初始资源文件路径: {initial_file}")
 
-            if os.path.exists(initial_file):
-                print(f"[DEBUG] 初始资源文件存在，加载默认标签...")
-                self._load_classes_from_file(initial_file)
-                # 将默认标签保存到持久化文件中
-                print(f"[DEBUG] 将默认标签保存到持久化文件...")
-                self.save_predefined_classes()
+                if os.path.exists(initial_file):
+                    print(f"[DEBUG] 初始资源文件存在，加载默认标签...")
+                    self._load_classes_from_file(initial_file)
+                    # 将默认标签保存到持久化文件中
+                    print(f"[DEBUG] 将默认标签保存到持久化文件...")
+                    self.save_predefined_classes()
+                else:
+                    print(f"[DEBUG] 初始资源文件也不存在，使用空的标签列表")
             else:
-                print(f"[DEBUG] 初始资源文件也不存在，使用空的标签列表")
+                print(f"[DEBUG] 项目模式下不从全局资源文件加载，保持项目隔离")
 
         print(f"[DEBUG] 最终标签历史记录: {self.label_hist}")
         print(f"[DEBUG] 标签数量: {len(self.label_hist)}")
@@ -4941,24 +5092,13 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def save_predefined_classes(self):
         """
-        保存标签历史记录到预设类文件
+        保存标签历史记录到预设类文件（仅保存到当前项目）
         """
-        print(f"[DEBUG] ========== 开始保存预设标签 ==========")
-        print(f"[DEBUG] 目标文件路径: {self.predefined_classes_file}")
-        print(f"[DEBUG] 文件路径类型: {type(self.predefined_classes_file)}")
+        print(f"[DEBUG] ========== 开始保存预设标签到当前项目 ==========")
         print(f"[DEBUG] 当前标签历史记录: {self.label_hist}")
         print(f"[DEBUG] 标签数量: {len(self.label_hist)}")
 
         try:
-            # 检查目录
-            target_dir = os.path.dirname(self.predefined_classes_file)
-            print(f"[DEBUG] 目标目录: {target_dir}")
-            print(f"[DEBUG] 目录是否存在: {os.path.exists(target_dir)}")
-
-            # 确保目录存在
-            os.makedirs(target_dir, exist_ok=True)
-            print(f"[DEBUG] 目录创建/确认完成")
-
             # 去重并保持顺序
             unique_labels = []
             seen = set()
@@ -4969,6 +5109,34 @@ class MainWindow(QMainWindow, WindowMixin):
 
             print(f"[DEBUG] 去重后的标签: {unique_labels}")
             print(f"[DEBUG] 去重后标签数量: {len(unique_labels)}")
+
+            # 优先使用配置适配器保存到当前项目（确保项目隔离）
+            if hasattr(self, 'config_adapter') and self.config_adapter:
+                success = self.config_adapter.save_classes(unique_labels)
+                if success:
+                    print(f"[DEBUG] 通过配置适配器保存到当前项目成功")
+                    return
+                else:
+                    print("[WARN] 通过配置适配器保存失败，回退到直接文件操作")
+
+            # 检查是否在项目模式下（predefined_classes_file为None）
+            if self.predefined_classes_file is None:
+                print(f"[ERROR] 项目模式下不允许直接文件操作，无法保存标签")
+                print(f"[ERROR] 请检查项目配置适配器或创建新项目")
+                return
+
+            # 回退到直接文件操作（兼容性）
+            print(f"[DEBUG] 回退到直接文件操作")
+            print(f"[DEBUG] 目标文件路径: {self.predefined_classes_file}")
+            
+            # 检查目录
+            target_dir = os.path.dirname(self.predefined_classes_file)
+            print(f"[DEBUG] 目标目录: {target_dir}")
+            print(f"[DEBUG] 目录是否存在: {os.path.exists(target_dir)}")
+
+            # 确保目录存在
+            os.makedirs(target_dir, exist_ok=True)
+            print(f"[DEBUG] 目录创建/确认完成")
 
             # 检查文件写入权限
             print(f"[DEBUG] 检查文件写入权限...")
@@ -5028,15 +5196,24 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def clear_predefined_classes(self):
         """
-        清空所有预设标签
+        清空所有预设标签（仅清空当前项目的标签）
         """
         try:
             # 清空内存中的标签历史
             self.label_hist.clear()
 
-            # 清空文件
-            with codecs.open(self.predefined_classes_file, 'w', 'utf8') as f:
-                f.write('')
+            # 使用配置适配器清空当前项目的类别（确保项目隔离）
+            if hasattr(self, 'config_adapter') and self.config_adapter:
+                success = self.config_adapter.save_classes([])  # 保存空列表
+                if not success:
+                    print("[WARN] 通过配置适配器清空标签失败，回退到直接文件操作")
+                    # 回退到直接文件操作（兼容性）
+                    with codecs.open(self.predefined_classes_file, 'w', 'utf8') as f:
+                        f.write('')
+            else:
+                # 如果配置适配器不可用，直接操作文件（兼容性）
+                with codecs.open(self.predefined_classes_file, 'w', 'utf8') as f:
+                    f.write('')
 
             # 重置默认标签
             self.default_label = None
@@ -6033,6 +6210,251 @@ class MainWindow(QMainWindow, WindowMixin):
 
         except Exception as e:
             print(f"[ERROR] 显示快捷键配置对话框失败: {str(e)}")
+
+    def show_project_management_dialog(self):
+        """显示项目管理对话框"""
+        try:
+            from libs.project_management_dialog import ProjectManagementDialog
+            dialog = ProjectManagementDialog(self)
+            
+            # 连接项目切换信号
+            dialog.project_switched.connect(self.on_project_switched)
+            
+            if dialog.exec_():
+                # 如果项目发生了切换，刷新界面
+                self.refresh_after_project_change()
+        except Exception as e:
+            print(f"[ERROR] 显示项目管理对话框失败: {str(e)}")
+    
+    def show_image_crop_dialog(self):
+        """显示图片裁剪对话框"""
+        try:
+            from libs.image_crop_dialog import ImageCropDialog
+            dialog = ImageCropDialog(self)
+            dialog.exec_()
+        except Exception as e:
+            print(f"[ERROR] 显示图片裁剪对话框失败: {str(e)}")
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "错误", f"无法打开图片裁剪对话框:\n{str(e)}")
+
+    def create_new_project(self):
+        """创建新项目"""
+        try:
+            from libs.project_management_dialog import ProjectCreationDialog
+            dialog = ProjectCreationDialog(self)
+            if dialog.exec_():
+                # 项目创建成功，刷新项目选择器
+                if hasattr(self, 'project_selector'):
+                    self.project_selector.refresh_projects()
+        except Exception as e:
+            print(f"[ERROR] 创建新项目失败: {str(e)}")
+
+    def show_project_selector_dialog(self):
+        """显示项目选择对话框"""
+        try:
+            from libs.project_manager import get_project_manager
+            from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton
+            
+            manager = get_project_manager()
+            projects = manager.list_projects()
+            current_project = manager.get_current_project()
+            
+            dialog = QDialog(self)
+            dialog.setWindowTitle('选择项目')
+            dialog.setModal(True)
+            
+            layout = QVBoxLayout()
+            
+            # 项目选择
+            project_layout = QHBoxLayout()
+            project_layout.addWidget(QLabel('选择项目:'))
+            
+            project_combo = QComboBox()
+            for project_name, info in projects.items():
+                project_combo.addItem(info.get('display_name', project_name), project_name)
+            
+            # 设置当前选中项目
+            for i in range(project_combo.count()):
+                if project_combo.itemData(i) == current_project:
+                    project_combo.setCurrentIndex(i)
+                    break
+            
+            project_layout.addWidget(project_combo)
+            layout.addLayout(project_layout)
+            
+            # 按钮
+            button_layout = QHBoxLayout()
+            ok_button = QPushButton('确定')
+            cancel_button = QPushButton('取消')
+            
+            ok_button.clicked.connect(dialog.accept)
+            cancel_button.clicked.connect(dialog.reject)
+            
+            button_layout.addWidget(ok_button)
+            button_layout.addWidget(cancel_button)
+            layout.addLayout(button_layout)
+            
+            dialog.setLayout(layout)
+            
+            if dialog.exec_():
+                selected_project = project_combo.itemData(project_combo.currentIndex())
+                if selected_project != current_project:
+                    success = manager.switch_project(selected_project)
+                    if success:
+                        # 调用项目切换事件处理
+                        self.on_project_switched(selected_project)
+                        self.refresh_after_project_change()
+                        print(f"[项目管理] 已切换到项目: {selected_project}")
+                    else:
+                        print(f"[ERROR] 切换到项目 {selected_project} 失败")
+                        
+        except Exception as e:
+            print(f"[ERROR] 显示项目选择对话框失败: {str(e)}")
+
+    def refresh_after_project_change(self):
+        """项目切换后刷新界面"""
+        try:
+            # 刷新项目选择器
+            if hasattr(self, 'project_selector'):
+                self.project_selector.refresh_projects()
+            
+            # 重新加载类别配置
+            if hasattr(self, 'class_manager'):
+                self.class_manager.load_classes()
+                
+            print("[项目管理] 界面刷新完成")
+        except Exception as e:
+            print(f"[ERROR] 项目切换后刷新界面失败: {str(e)}")
+
+    def reset_workspace_state(self):
+        """重置工作区状态到干净环境"""
+        try:
+            print("[项目切换] 正在重置工作区状态...")
+            
+            # 关闭当前图像
+            if hasattr(self, 'canvas'):
+                self.canvas.reset_state()
+                
+            # 重置图像相关状态
+            self.image = QImage()
+            self.file_path = None
+            self.image_data = None
+            
+            # 重置形状和标注
+            if hasattr(self, 'canvas') and hasattr(self.canvas, 'shapes'):
+                self.canvas.shapes.clear()
+                if hasattr(self.canvas, 'selected_shape'):
+                    self.canvas.selected_shape = None
+                
+            # 清空形状列表UI
+            if hasattr(self, 'shape_dock') and hasattr(self.shape_dock, 'list_widget'):
+                self.shape_dock.list_widget.clear()
+                
+            # 重置文件列表状态
+            if hasattr(self, 'file_dock') and hasattr(self.file_dock, 'list_widget'):
+                # 不清空文件列表，只重置选中状态
+                file_list = self.file_dock.list_widget
+                file_list.clearSelection()
+                
+            # 重置脏标志
+            self.dirty = False
+            
+            # 重置缩放
+            self.zoom_level = 100
+            
+            print("[项目切换] 工作区状态重置完成")
+            
+        except Exception as e:
+            print(f"[ERROR] 重置工作区状态失败: {e}")
+
+    def reload_project_configs(self, project_name: str):
+        """重新加载项目配置"""
+        try:
+            print(f"[项目切换] 正在重新加载项目 '{project_name}' 的配置...")
+            
+            # 重新加载预定义类别
+            if self.config_adapter:
+                classes = self.config_adapter.load_classes()
+                self.label_hist = classes
+                
+                # 重置默认标签
+                if classes:
+                    self.default_label = classes[0]
+                    self.use_default_label_checkbox.setEnabled(True)
+                    self.use_default_label_checkbox.setChecked(False)  # 重置为不使用默认标签
+                else:
+                    self.default_label = None
+                    self.use_default_label_checkbox.setEnabled(False)
+                    self.use_default_label_checkbox.setChecked(False)
+                
+                # 更新标签相关组件
+                if hasattr(self, 'default_label_combo_box'):
+                    self.default_label_combo_box.update_item_list(self.label_hist)
+                if hasattr(self, 'label_dialog'):
+                    self.label_dialog.list_item = self.label_hist
+                    
+                print(f"[项目切换] 已加载项目 '{project_name}' 的 {len(classes)} 个类别")
+                
+            # 重新加载训练配置
+            if self.config_adapter:
+                try:
+                    training_prefs = self.config_adapter.load_training_preferences()
+                    # 如果有训练面板，重置其配置
+                    if hasattr(self, 'training_dialog') and self.training_dialog:
+                        # 这里可以重置训练对话框的状态
+                        pass
+                    print(f"[项目切换] 已重新加载训练配置")
+                except Exception as e:
+                    print(f"[WARN] 重新加载训练配置失败: {e}")
+                    
+            # 重新加载快捷键配置（如果有的话）
+            if self.config_adapter:
+                try:
+                    # shortcuts = self.config_adapter.load_shortcuts() 
+                    # 这里可以重新应用快捷键配置
+                    print(f"[项目切换] 快捷键配置检查完成")
+                except Exception as e:
+                    print(f"[WARN] 重新加载快捷键配置失败: {e}")
+                    
+        except Exception as e:
+            print(f"[ERROR] 重新加载项目配置失败: {e}")
+
+    def reset_ui_to_project_defaults(self, project_name: str):
+        """重置UI状态到项目默认值"""
+        try:
+            print(f"[项目切换] 正在重置UI状态到项目 '{project_name}' 默认值...")
+            
+            # 重置窗口标题
+            if self.file_path:
+                self.setWindowTitle(f'{__appname__} - {self.file_path} - {project_name}')
+            else:
+                self.setWindowTitle(f'{__appname__} - {project_name}')
+                
+            # 重置最后一个标签
+            self.lastLabel = None
+            
+            # 重置画布模式到默认
+            if hasattr(self, 'canvas'):
+                self.canvas.set_editing(True)  # 重置为编辑模式
+                self.canvas.repaint()
+                
+            # 重置工具栏状态
+            self.actions.create.setEnabled(False)  # 没有图像时禁用创建
+            self.actions.edit.setEnabled(False)
+            self.actions.copy.setEnabled(False)
+            self.actions.delete.setEnabled(False)
+            
+            # 重置菜单状态
+            self.actions.save.setEnabled(False)
+            self.actions.saveAs.setEnabled(False)
+            
+            # 清空状态栏消息（除了项目切换成功消息）
+            # statusBar消息会在父方法中显示
+            
+            print(f"[项目切换] UI状态重置完成")
+            
+        except Exception as e:
+            print(f"[ERROR] 重置UI状态失败: {e}")
 
     def on_image_cached(self, file_path: str):
         """图像缓存完成回调"""
