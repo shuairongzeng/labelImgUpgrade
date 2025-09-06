@@ -1,4 +1,11 @@
-bossIcon
-playerIcon
-weiZhiIcon
-fuHaoIcon
+naiMa
+lingZhu
+guaiWu
+naiBa
+xiuLuo
+xiuLiShang
+lingQu
+door
+fanPai
+zaiCiTiaoZhan
+chengHao

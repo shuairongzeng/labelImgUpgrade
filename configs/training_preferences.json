@@ -26,6 +26,20 @@
         "adjusted_epochs": 80,
         "reason": "应用智能计算推荐值",
         "timestamp": "2025-08-16 08:51:33"
+      },
+      {
+        "dataset_path": "./datasets\\training_dataset\\data.yaml",
+        "original_epochs": 80,
+        "adjusted_epochs": 76,
+        "reason": "应用智能计算推荐值",
+        "timestamp": "2025-09-06 09:41:08"
+      },
+      {
+        "dataset_path": "./datasets\\training_dataset\\data.yaml",
+        "original_epochs": 76,
+        "adjusted_epochs": 67,
+        "reason": "应用智能计算推荐值",
+        "timestamp": "2025-09-06 13:13:07"
       }
     ]
   },
@@ -89,6 +103,30 @@
       "recommended_epochs": 80,
       "confidence_level": "中",
       "timestamp": "2025-08-17 12:54:54"
+    },
+    {
+      "dataset_path": "./datasets\\training_dataset\\data.yaml",
+      "dataset_info": {
+        "total_images": 2450,
+        "train_images": 2204,
+        "val_images": 246,
+        "num_classes": 0
+      },
+      "recommended_epochs": 76,
+      "confidence_level": "中",
+      "timestamp": "2025-09-06 09:40:52"
+    },
+    {
+      "dataset_path": "./datasets\\training_dataset\\data.yaml",
+      "dataset_info": {
+        "total_images": 1018,
+        "train_images": 916,
+        "val_images": 102,
+        "num_classes": 0
+      },
+      "recommended_epochs": 96,
+      "confidence_level": "中",
+      "timestamp": "2025-09-06 13:13:01"
     }
   ]
 }

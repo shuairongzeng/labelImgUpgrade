@@ -1,8 +1,15 @@
 names:
-  0: bossIcon
-  1: playerIcon
-  2: weiZhiIcon
-  3: fuHaoIcon
+  0: naiMa
+  1: lingZhu
+  2: guaiWu
+  3: naiBa
+  4: xiuLuo
+  5: xiuLiShang
+  6: lingQu
+  7: door
+  8: fanPai
+  9: zaiCiTiaoZhan
+  10: chengHao
 path: D:\GitHub\python_labelImg-master\labelImg-master\datasets\training_dataset
 test: null
 train: images/train

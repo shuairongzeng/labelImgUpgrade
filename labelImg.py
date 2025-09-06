@@ -4162,13 +4162,51 @@ class MainWindow(QMainWindow, WindowMixin):
         extensions = ['.%s' % fmt.data().decode("ascii").lower()
                       for fmt in QImageReader.supportedImageFormats()]
         images = []
+        corrupted_files = []  # 记录损坏的文件
 
         for root, dirs, files in os.walk(folder_path):
             for file in files:
                 if file.lower().endswith(tuple(extensions)):
                     relative_path = os.path.join(root, file)
                     path = ustr(os.path.abspath(relative_path))
-                    images.append(path)
+
+                    # 检测图片是否损坏
+                    try:
+                        test_image = QImage(path)
+                        if test_image.isNull():
+                            # 图片损坏，直接删除
+                            print(f"[清理] 检测到损坏图片，正在删除: {os.path.basename(path)}")
+                            os.remove(path)
+                            corrupted_files.append(os.path.basename(path))
+
+                            # 同时删除可能存在的标注文件
+                            annotation_files = [
+                                os.path.splitext(path)[0] + '.xml',
+                                os.path.splitext(path)[0] + '.txt',
+                                os.path.splitext(path)[0] + '.json'
+                            ]
+                            for ann_file in annotation_files:
+                                if os.path.exists(ann_file):
+                                    os.remove(ann_file)
+                                    print(f"[清理] 删除对应标注文件: {os.path.basename(ann_file)}")
+                        else:
+                            # 图片正常，添加到列表
+                            images.append(path)
+                    except Exception as e:
+                        # 读取异常也视为损坏，删除文件
+                        print(f"[清理] 图片读取异常，正在删除: {os.path.basename(path)} - {str(e)}")
+                        try:
+                            os.remove(path)
+                            corrupted_files.append(os.path.basename(path))
+                        except:
+                            pass  # 删除失败就跳过
+
+        # 显示清理结果
+        if corrupted_files:
+            self.status(f"✅ 已自动清理 {len(corrupted_files)} 个损坏图片: {', '.join(corrupted_files[:3])}" +
+                       (f" 等{len(corrupted_files)}个文件" if len(corrupted_files) > 3 else ""))
+            print(f"[清理完成] 共清理 {len(corrupted_files)} 个损坏文件")
+
         natural_sort(images, key=lambda x: x.lower())
         return images
 
