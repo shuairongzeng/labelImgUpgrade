@@ -28,6 +28,11 @@ from .training_config_manager import TrainingConfigManager
 
 # 设置日志
 logger = logging.getLogger(__name__)
+# 导入批量预测对话框
+try:
+    from .batch_prediction_dialog import BatchPredictionDialog
+except ImportError:
+    from batch_prediction_dialog import BatchPredictionDialog
 
 
 class CollapsibleGroupBox(QGroupBox):
@@ -816,6 +821,7 @@ class AIAssistantPanel(QWidget):
         self.is_predicting = False
         self.is_smart_predicting = False  # 智能预测状态标记
         self.is_auto_selecting = False  # 标记是否正在自动选择模型
+        self.current_batch_config = {}  # 当前批量预测配置
 
         # 设置界面
         self.setup_ui()
@@ -7480,19 +7486,90 @@ pip install torch torchvision torchaudio
             traceback.print_exc()
 
     def on_predict_batch(self):
-        """批量预测"""
+        """批量预测 - 显示配置对话框"""
         try:
-            # 选择目录
-            dir_path = QFileDialog.getExistingDirectory(
-                self, "选择图像目录", "", QFileDialog.ShowDirsOnly
-            )
-
-            if dir_path:
-                confidence = self.get_current_confidence()
-                self.batch_prediction_requested.emit(dir_path, confidence)
-
+            # 获取默认路径 (当前标注文件夹)
+            default_path = ""
+            
+            # 查找主窗口
+            main_window = None
+            from PyQt5.QtWidgets import QApplication
+            app = QApplication.instance()
+            if app:
+                for widget in app.topLevelWidgets():
+                    # 检查是否是主窗口 - 有图片相关属性
+                    if (hasattr(widget, 'filename') or hasattr(widget, 'mImgList') or 
+                        hasattr(widget, 'lastOpenDir') or hasattr(widget, 'filePath')):
+                        main_window = widget
+                        break
+            
+            # 尝试从主窗口获取当前图片目录
+            if main_window:
+                # 优先从当前文件路径获取
+                if hasattr(main_window, 'filename') and main_window.filename:
+                    import os
+                    default_path = os.path.dirname(main_window.filename)
+                # 其次从图片列表获取
+                elif hasattr(main_window, 'mImgList') and main_window.mImgList and len(main_window.mImgList) > 0:
+                    import os
+                    default_path = os.path.dirname(main_window.mImgList[0])
+                # 再从最近打开目录获取
+                elif hasattr(main_window, 'lastOpenDir') and main_window.lastOpenDir:
+                    default_path = main_window.lastOpenDir
+            
+            # 如果还是没有找到，使用用户文档目录作为更好的默认值
+            if not default_path:
+                import os
+                # 尝试用户文档目录
+                documents_path = os.path.expanduser("~/Documents")
+                if os.path.exists(documents_path):
+                    default_path = documents_path
+                else:
+                    # 最后使用当前工作目录
+                    default_path = os.getcwd()
+            
+            # 创建并显示批量预测配置对话框
+            dialog = BatchPredictionDialog(self, default_path)
+            dialog.prediction_started.connect(self.on_batch_prediction_configured)
+            
+            # 连接批处理器的实际信号到对话框
+            if hasattr(self, 'batch_processor') and self.batch_processor:
+                # 连接进度更新信号
+                self.batch_processor.progress_updated.connect(dialog.update_progress)
+                
+                # 连接批量完成信号 - 需要适配参数格式
+                def on_batch_completed_wrapper(result_dict):
+                    successful = result_dict.get('successful', 0)
+                    total = result_dict.get('total', 0)
+                    errors = result_dict.get('errors', [])
+                    dialog.prediction_completed(successful, total, errors)
+                
+                self.batch_processor.batch_completed.connect(on_batch_completed_wrapper)
+                
+                # 连接取消信号
+                self.batch_processor.batch_cancelled.connect(dialog.prediction_cancelled)
+            
+            dialog.exec_()
+            
         except Exception as e:
-            error_msg = f"批量预测请求失败: {str(e)}"
+            error_msg = f"批量预测对话框启动失败: {str(e)}"
+            logger.error(error_msg)
+            self.update_status(error_msg, is_error=True)
+
+    def on_batch_prediction_configured(self, dir_path, config):
+        """处理配置后的批量预测请求"""
+        try:
+            logger.info(f"开始批量预测: {dir_path}, 配置: {config}")
+            
+            # 发射原有的批量预测信号，保持向后兼容
+            confidence = config.get('confidence', 0.25)
+            self.batch_prediction_requested.emit(dir_path, confidence)
+            
+            # 存储配置以供后续使用
+            self.current_batch_config = config
+            
+        except Exception as e:
+            error_msg = f"批量预测配置处理失败: {str(e)}"
             logger.error(error_msg)
             self.update_status(error_msg, is_error=True)
 
