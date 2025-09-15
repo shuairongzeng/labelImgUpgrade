@@ -249,3 +249,5 @@ debug/
 /torch-offline-install313
 /projects
 nul
+test_startup_performance.py
+verify_optimization.py

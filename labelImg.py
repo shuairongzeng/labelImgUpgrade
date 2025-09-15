@@ -22,6 +22,7 @@ from libs.canvas import Canvas
 from libs.stringBundle import StringBundle
 from libs.shape import Shape, DEFAULT_LINE_COLOR, DEFAULT_FILL_COLOR
 from libs.settings import Settings
+from libs.background_image_loader import ProgressiveImageManager
 import argparse
 import codecs
 import os.path
@@ -629,6 +630,14 @@ class MainWindow(QMainWindow, WindowMixin):
             print(f"[WARNING] 防抖管理器初始化失败: {e}")
             self.debounce_manager = None
             self.debounced_status_update = self._do_update_status_bar_info
+
+        # 初始化渐进式图片管理器（用于大数据集快速启动）
+        try:
+            self.progressive_image_manager = ProgressiveImageManager(self)
+            print("[DEBUG] 渐进式图片管理器初始化成功")
+        except Exception as e:
+            print(f"[WARNING] 渐进式图片管理器初始化失败: {e}")
+            self.progressive_image_manager = None
 
         # Load predefined classes to the list
         print(f"[DEBUG] 开始加载预设类文件...")
@@ -4145,11 +4154,14 @@ class MainWindow(QMainWindow, WindowMixin):
             except Exception as e:
                 print(f"[WARNING] 关闭后台任务管理器时出错: {e}")
 
-    def load_recent(self, filename):
-        if self.may_continue():
-            self.load_file(filename)
+        # 清理渐进式图片管理器
+        if hasattr(self, 'progressive_image_manager') and self.progressive_image_manager:
+            try:
+                self.progressive_image_manager.stop_loading()
+                print("[DEBUG] 渐进式图片管理器已关闭")
+            except Exception as e:
+                print(f"[WARNING] 关闭渐进式图片管理器时出错: {e}")
 
-                
         # 清理防抖管理器
         if hasattr(self, 'debounce_manager') and self.debounce_manager:
             try:
@@ -4157,6 +4169,10 @@ class MainWindow(QMainWindow, WindowMixin):
                 print("[DEBUG] 防抖管理器已关闭")
             except Exception as e:
                 print(f"[WARNING] 关闭防抖管理器时出错: {e}")
+
+    def load_recent(self, filename):
+        if self.may_continue():
+            self.load_file(filename)
 
     def scan_all_images(self, folder_path):
         extensions = ['.%s' % fmt.data().decode("ascii").lower()
@@ -4300,24 +4316,47 @@ class MainWindow(QMainWindow, WindowMixin):
         # 因为在load_file中已经调用过了
 
     def import_dir_images(self, dir_path):
+        """导入目录图片 - 使用渐进式加载优化大数据集启动速度"""
         if not self.may_continue() or not dir_path:
             return
 
-        print("[PERF] 开始导入目录图片...")
+        print("[PERF] 开始导入目录图片（渐进式加载）...")
         start_time = time.time()
 
         self.last_open_dir = dir_path
         self.dir_name = dir_path
         self.file_path = None
-        
-        # 性能优化：暂停所有自动更新
-        # 新的防抖系统会自动处理，无需手动停止
-        
+
+        # 性能优化：图片列表变更时使缓存失效
+        self.invalidate_annotation_cache()
+
+        # 使用渐进式加载器（如果可用）
+        if self.progressive_image_manager:
+            # 清空文件列表准备接收新数据
+            self.file_list_widget.clear()
+            self.m_img_list = []
+            self.img_count = 0
+
+            # 显示初始状态
+            self.status("🚀 正在扫描目录，即将快速启动...")
+
+            # 开始渐进式加载（初始20张图片）
+            self.progressive_image_manager.load_directory_progressive(dir_path, initial_batch_size=20)
+
+            print(f"[PERF] 渐进式加载已启动，初始准备用时: {(time.time() - start_time)*1000:.1f}ms")
+
+        else:
+            # 备用：使用原有的同步加载方式
+            print("[FALLBACK] 渐进式加载器不可用，使用传统加载方式")
+            self._import_dir_images_legacy(dir_path, start_time)
+
+    def _import_dir_images_legacy(self, dir_path, start_time):
+        """传统的同步加载方式（备用方案）"""
         # 批量清理和设置
         self.file_list_widget.clear()
         self.m_img_list = self.scan_all_images(dir_path)
         self.img_count = len(self.m_img_list)
-        
+
         # 性能优化：批量添加文件列表项，减少UI重绘
         self.file_list_widget.setUpdatesEnabled(False)  # 暂停UI更新
         try:
@@ -4326,10 +4365,7 @@ class MainWindow(QMainWindow, WindowMixin):
                 self.file_list_widget.addItem(item)
         finally:
             self.file_list_widget.setUpdatesEnabled(True)  # 恢复UI更新
-        
-        # 性能优化：图片列表变更时使缓存失效
-        self.invalidate_annotation_cache()
-        
+
         # 延迟加载第一张图片，给UI时间完成更新
         def delayed_load_first_image():
             self.open_next_image()
@@ -4337,10 +4373,10 @@ class MainWindow(QMainWindow, WindowMixin):
             self.update_switch_button_state()
             # 使用新的防抖系统更新状态栏
             self.update_status_bar_info()
-            
+
             end_time = time.time()
             print(f"[PERF] 目录导入完成，用时: {(end_time - start_time)*1000:.1f}ms，共{len(self.m_img_list)}张图片")
-        
+
         # 使用QTimer异步执行，避免阻塞UI
         from PyQt5.QtCore import QTimer
         QTimer.singleShot(10, delayed_load_first_image)
