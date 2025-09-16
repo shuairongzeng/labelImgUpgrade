@@ -1,18 +1,18 @@
 {
   "version": "1.0",
-  "last_updated": 1758002515.832594,
+  "last_updated": 1758005714.5358627,
   "session_info": {
-    "session_start": 1758002215.841315,
+    "session_start": 1758003914.5377514,
     "current_workflow": "mixed",
-    "operations_count": 0
+    "operations_count": 240
   },
   "habit_patterns": {
     "sequence_next_image_next_image": {
       "pattern_id": "sequence_next_image_next_image",
       "description": "从 next_image 到 next_image",
-      "frequency": 4898,
+      "frequency": 5113,
       "confidence": 0.95,
-      "last_occurrence": 1757948023.0134387,
+      "last_occurrence": 1758004277.252706,
       "triggers": [
         "next_image"
       ],
@@ -24,9 +24,9 @@
     "sequence_next_image_prev_image": {
       "pattern_id": "sequence_next_image_prev_image",
       "description": "从 next_image 到 prev_image",
-      "frequency": 63,
-      "confidence": 0.1,
-      "last_occurrence": 1757864101.7445717,
+      "frequency": 69,
+      "confidence": 0.39999999999999997,
+      "last_occurrence": 1758004198.2763803,
       "triggers": [
         "next_image"
       ],
@@ -38,9 +38,9 @@
     "sequence_prev_image_prev_image": {
       "pattern_id": "sequence_prev_image_prev_image",
       "description": "从 prev_image 到 prev_image",
-      "frequency": 365,
-      "confidence": 0.1,
-      "last_occurrence": 1757864101.7697296,
+      "frequency": 377,
+      "confidence": 0.7000000000000001,
+      "last_occurrence": 1758004198.3104675,
       "triggers": [
         "prev_image"
       ],
@@ -52,9 +52,9 @@
     "sequence_prev_image_next_image": {
       "pattern_id": "sequence_prev_image_next_image",
       "description": "从 prev_image 到 next_image",
-      "frequency": 63,
-      "confidence": 0.1,
-      "last_occurrence": 1757864102.9978015,
+      "frequency": 69,
+      "confidence": 0.39999999999999997,
+      "last_occurrence": 1758004201.518668,
       "triggers": [
         "prev_image"
       ],
@@ -422,24 +422,114 @@
         "next_image"
       ],
       "context_requirements": {}
+    },
+    "deep_pattern_9871": {
+      "pattern_id": "deep_pattern_9871",
+      "description": "深度模式: next_image -> next_image -> next_image",
+      "frequency": 208,
+      "confidence": 0.7,
+      "last_occurrence": 1758004634.5360084,
+      "triggers": [
+        "next_image",
+        "next_image"
+      ],
+      "actions": [
+        "next_image"
+      ],
+      "context_requirements": {}
+    },
+    "deep_pattern_8852": {
+      "pattern_id": "deep_pattern_8852",
+      "description": "深度模式: next_image -> next_image -> prev_image",
+      "frequency": 6,
+      "confidence": 0.7,
+      "last_occurrence": 1758004634.5360084,
+      "triggers": [
+        "next_image",
+        "next_image"
+      ],
+      "actions": [
+        "prev_image"
+      ],
+      "context_requirements": {}
+    },
+    "deep_pattern_9546": {
+      "pattern_id": "deep_pattern_9546",
+      "description": "深度模式: next_image -> prev_image -> prev_image",
+      "frequency": 6,
+      "confidence": 0.7,
+      "last_occurrence": 1758004634.5360084,
+      "triggers": [
+        "next_image",
+        "prev_image"
+      ],
+      "actions": [
+        "prev_image"
+      ],
+      "context_requirements": {}
+    },
+    "deep_pattern_2462": {
+      "pattern_id": "deep_pattern_2462",
+      "description": "深度模式: prev_image -> prev_image -> next_image",
+      "frequency": 6,
+      "confidence": 0.7,
+      "last_occurrence": 1758004634.5360084,
+      "triggers": [
+        "prev_image",
+        "prev_image"
+      ],
+      "actions": [
+        "next_image"
+      ],
+      "context_requirements": {}
+    },
+    "deep_pattern_3075": {
+      "pattern_id": "deep_pattern_3075",
+      "description": "深度模式: prev_image -> next_image -> next_image",
+      "frequency": 6,
+      "confidence": 0.7,
+      "last_occurrence": 1758004634.5360084,
+      "triggers": [
+        "prev_image",
+        "next_image"
+      ],
+      "actions": [
+        "next_image"
+      ],
+      "context_requirements": {}
+    },
+    "deep_pattern_3163": {
+      "pattern_id": "deep_pattern_3163",
+      "description": "深度模式: prev_image -> prev_image -> prev_image",
+      "frequency": 6,
+      "confidence": 0.7,
+      "last_occurrence": 1758004634.5360084,
+      "triggers": [
+        "prev_image",
+        "prev_image"
+      ],
+      "actions": [
+        "prev_image"
+      ],
+      "context_requirements": {}
     }
   },
   "user_preferences": {
     "action_frequency_next_image": {
       "preference_id": "action_frequency_next_image",
       "category": "action_frequency",
-      "value": 4970,
+      "value": 5192,
       "confidence": 0.5,
-      "learning_sessions": 4970,
-      "last_updated": 1757948023.0134387
+      "learning_sessions": 5192,
+      "last_updated": 1758004277.252706
     },
     "action_frequency_prev_image": {
       "preference_id": "action_frequency_prev_image",
       "category": "action_frequency",
-      "value": 428,
+      "value": 446,
       "confidence": 0.5,
-      "learning_sessions": 428,
-      "last_updated": 1757864101.7697296
+      "learning_sessions": 446,
+      "last_updated": 1758004198.3104675
     }
   },
   "learning_config": {
