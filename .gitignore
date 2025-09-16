@@ -251,3 +251,4 @@ debug/
 nul
 test_startup_performance.py
 verify_optimization.py
+test_async_dataset_processing.py

@@ -330,6 +330,263 @@ class InstallThread(QThread):
             self.installation_finished.emit(False, str(e))
 
 
+class AsyncDatasetProcessorThread(QThread):
+    """异步数据集处理线程，用于优化大量图片的处理性能"""
+
+    # 信号定义
+    progress_updated = pyqtSignal(int, str)  # 进度百分比，当前状态描述
+    log_updated = pyqtSignal(str)  # 日志信息
+    stage_completed = pyqtSignal(str, dict)  # 阶段完成信号，阶段名，结果数据
+    processing_finished = pyqtSignal(bool, str, str)  # 成功状态，错误信息，结果目录
+    processing_cancelled = pyqtSignal()  # 处理被取消
+
+    def __init__(self, source_dir, config, parent=None):
+        super().__init__(parent)
+        self.source_dir = source_dir
+        self.config = config
+        self.is_cancelled = False
+        self.temp_dir = None
+
+        # 处理配置
+        self.dataset_name = config.get('dataset_name', 'training_dataset')
+        self.train_ratio = config.get('train_ratio', 80)
+        self.output_dir = config.get('output_dir', './datasets')
+        self.shuffle = config.get('shuffle', True)
+        self.annotation_format = config.get('annotation_format', 'auto')
+        self.clean_existing = config.get('clean_existing', True)
+        self.backup_existing = config.get('backup_existing', False)
+        self.exclude_trained = config.get('exclude_trained', True)
+        self.strict_matching = config.get('strict_matching', False)
+
+        # 用于检查图片训练状态的函数
+        self.is_image_trained_func = config.get('is_image_trained_func')
+
+    def cancel(self):
+        """取消处理"""
+        self.is_cancelled = True
+        self.log_updated.emit("🛑 用户取消操作...")
+
+    def run(self):
+        """主处理流程"""
+        try:
+            self.log_updated.emit("🚀 开始异步处理数据集...")
+            self.progress_updated.emit(0, "正在扫描文件...")
+
+            # 阶段1：扫描和过滤文件
+            if self.is_cancelled:
+                self.processing_cancelled.emit()
+                return
+
+            filtered_files = self._scan_and_filter_files()
+            if filtered_files is None:
+                return
+
+            self.stage_completed.emit("scan", {"filtered_files_count": len(filtered_files)})
+
+            # 阶段2：创建过滤后的目录
+            if self.is_cancelled:
+                self.processing_cancelled.emit()
+                return
+
+            if self.exclude_trained and filtered_files:
+                result_dir = self._create_filtered_directory(filtered_files)
+                if result_dir is None:
+                    return
+            else:
+                result_dir = self.source_dir
+
+            self.stage_completed.emit("filter", {"result_dir": result_dir})
+
+            # 处理完成
+            self.progress_updated.emit(100, "处理完成")
+            self.log_updated.emit("✅ 数据集处理完成")
+            self.processing_finished.emit(True, "", result_dir)
+
+        except Exception as e:
+            self.log_updated.emit(f"❌ 处理失败: {str(e)}")
+            self.processing_finished.emit(False, str(e), "")
+
+    def _scan_and_filter_files(self):
+        """扫描和过滤文件"""
+        try:
+            import os
+
+            # 获取所有文件列表
+            self.log_updated.emit("📋 正在扫描文件...")
+            if self.is_cancelled:
+                return None
+
+            all_files = os.listdir(self.source_dir)
+
+            # 查找标注文件
+            xml_files = [f for f in all_files if f.lower().endswith('.xml')]
+            json_files = [f for f in all_files if f.lower().endswith('.json')]
+
+            self.log_updated.emit(f"📄 找到 {len(xml_files)} 个XML标注文件")
+            if json_files:
+                self.log_updated.emit(f"📄 找到 {len(json_files)} 个JSON标注文件")
+
+            # 根据用户选择决定标注格式
+            if self.annotation_format == "xml":
+                annotation_files = xml_files
+                format_name = "XML"
+            elif self.annotation_format == "json":
+                annotation_files = json_files
+                format_name = "JSON"
+            else:
+                # 自动检测：优先使用XML
+                annotation_files = xml_files if xml_files else json_files
+                format_name = "XML" if xml_files else "JSON" if json_files else None
+
+            if not annotation_files:
+                self.log_updated.emit("❌ 未找到任何标注文件")
+                self.processing_finished.emit(False, "未找到任何标注文件", "")
+                return None
+
+            self.log_updated.emit(f"✅ 将使用 {format_name} 格式的标注文件")
+            self.progress_updated.emit(20, f"扫描到 {len(annotation_files)} 个标注文件")
+
+            # 查找对应的图片文件
+            image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif']
+            valid_pairs = []
+
+            total_files = len(annotation_files)
+            for i, annotation_file in enumerate(annotation_files):
+                if self.is_cancelled:
+                    return None
+
+                # 更新进度（20-50%用于文件扫描）
+                if i % max(1, total_files // 10) == 0:
+                    progress = 20 + int((i / total_files) * 30)
+                    self.progress_updated.emit(progress, f"扫描文件对 {i+1}/{total_files}")
+
+                # 查找对应的图片
+                base_name = os.path.splitext(annotation_file)[0]
+                image_file = None
+
+                for ext in image_extensions:
+                    potential_image = os.path.join(self.source_dir, base_name + ext)
+                    if os.path.exists(potential_image):
+                        image_file = base_name + ext
+                        break
+
+                if image_file:
+                    valid_pairs.append((annotation_file, image_file))
+
+            self.log_updated.emit(f"📊 找到 {len(valid_pairs)} 对有效的图片-标注文件")
+            self.progress_updated.emit(50, f"找到 {len(valid_pairs)} 对有效文件")
+
+            if not valid_pairs:
+                self.log_updated.emit("❌ 没有找到匹配的图片-标注文件对")
+                self.processing_finished.emit(False, "没有找到匹配的图片-标注文件对", "")
+                return None
+
+            # 如果不需要排除已训练图片，直接返回
+            if not self.exclude_trained:
+                self.log_updated.emit("ℹ️ 跳过训练状态检查")
+                return valid_pairs
+
+            # 检查训练状态
+            return self._filter_untrained_files(valid_pairs)
+
+        except Exception as e:
+            self.log_updated.emit(f"❌ 文件扫描失败: {str(e)}")
+            self.processing_finished.emit(False, f"文件扫描失败: {str(e)}", "")
+            return None
+
+    def _filter_untrained_files(self, valid_pairs):
+        """过滤出未训练的文件"""
+        try:
+            if not self.is_image_trained_func:
+                self.log_updated.emit("⚠️ 无法检查训练状态，将使用所有文件")
+                return valid_pairs
+
+            self.log_updated.emit("🔍 正在检查图片训练状态...")
+
+            untrained_files = []
+            trained_count = 0
+            total_files = len(valid_pairs)
+
+            for i, (annotation_file, image_file) in enumerate(valid_pairs):
+                if self.is_cancelled:
+                    return None
+
+                # 更新进度（50-80%用于训练状态检查）
+                if i % max(1, total_files // 20) == 0:
+                    progress = 50 + int((i / total_files) * 30)
+                    self.progress_updated.emit(progress, f"检查训练状态 {i+1}/{total_files}")
+
+                image_path = os.path.join(self.source_dir, image_file)
+
+                if not self.is_image_trained_func(image_path, self.strict_matching):
+                    untrained_files.append((annotation_file, image_file))
+                else:
+                    trained_count += 1
+
+            self.log_updated.emit(f"🚫 排除已训练图片: {trained_count} 张")
+            self.log_updated.emit(f"✅ 保留未训练图片: {len(untrained_files)} 张")
+            self.progress_updated.emit(80, f"过滤完成: {len(untrained_files)} 张未训练图片")
+
+            if len(untrained_files) == 0:
+                self.log_updated.emit("⚠️ 没有未训练的图片，将使用所有图片")
+                return valid_pairs
+
+            return untrained_files
+
+        except Exception as e:
+            self.log_updated.emit(f"❌ 训练状态检查失败: {str(e)}")
+            # 发生错误时返回所有文件，不中断流程
+            return valid_pairs
+
+    def _create_filtered_directory(self, filtered_files):
+        """创建过滤后的临时目录"""
+        try:
+            import tempfile
+            import shutil
+
+            self.log_updated.emit("📁 正在创建过滤后的目录...")
+
+            # 创建临时目录
+            self.temp_dir = tempfile.mkdtemp(prefix="labelimg_filtered_")
+            self.log_updated.emit(f"📁 创建临时目录: {self.temp_dir}")
+
+            # 复制文件
+            total_files = len(filtered_files)
+            for i, (annotation_file, image_file) in enumerate(filtered_files):
+                if self.is_cancelled:
+                    return None
+
+                # 更新进度（80-95%用于文件复制）
+                if i % max(1, total_files // 20) == 0:
+                    progress = 80 + int((i / total_files) * 15)
+                    self.progress_updated.emit(progress, f"复制文件 {i+1}/{total_files}")
+
+                try:
+                    # 复制标注文件
+                    src_annotation = os.path.join(self.source_dir, annotation_file)
+                    dst_annotation = os.path.join(self.temp_dir, annotation_file)
+                    shutil.copy2(src_annotation, dst_annotation)
+
+                    # 复制图片文件
+                    src_image = os.path.join(self.source_dir, image_file)
+                    dst_image = os.path.join(self.temp_dir, image_file)
+                    shutil.copy2(src_image, dst_image)
+
+                except Exception as copy_error:
+                    self.log_updated.emit(f"⚠️ 复制文件失败: {annotation_file}, {image_file} - {copy_error}")
+                    # 继续处理其他文件
+
+            self.log_updated.emit(f"📋 已复制 {len(filtered_files)} 对文件到临时目录")
+            self.progress_updated.emit(95, "文件复制完成")
+
+            return self.temp_dir
+
+        except Exception as e:
+            self.log_updated.emit(f"❌ 创建过滤目录失败: {str(e)}")
+            self.processing_finished.emit(False, f"创建过滤目录失败: {str(e)}", "")
+            return None
+
+
 class CollapsibleAIPanel(QWidget):
     """可折叠的AI助手面板"""
 
@@ -4664,9 +4921,9 @@ class AIAssistantPanel(QWidget):
             buttons_layout.addWidget(self.start_config_btn)
 
             # 取消按钮
-            cancel_btn = QPushButton("取消")
-            cancel_btn.clicked.connect(dialog.reject)
-            buttons_layout.addWidget(cancel_btn)
+            self.cancel_btn = QPushButton("取消")
+            self.cancel_btn.clicked.connect(lambda: self._handle_cancel_button(dialog))
+            buttons_layout.addWidget(self.cancel_btn)
 
             layout.addLayout(buttons_layout)
 
@@ -4985,10 +5242,20 @@ class AIAssistantPanel(QWidget):
             self._safe_append_auto_log("🔧 UI状态设置完成")
             QApplication.processEvents()  # 再次刷新以显示日志
 
-            # 调用YOLO导出功能
-            logger.info("📦 调用YOLO导出功能...")
-            self._safe_append_auto_log("📦 调用YOLO导出功能...")
-            self.call_yolo_export_and_configure(dialog)
+            # 检查是否需要使用异步处理
+            exclude_trained = getattr(self, 'exclude_trained_checkbox', None)
+            exclude_trained = exclude_trained.isChecked() if exclude_trained else False
+
+            if exclude_trained and hasattr(self, 'training_history_manager') and self.training_history_manager:
+                # 使用异步处理进行数据过滤
+                logger.info("🔄 启动异步数据处理...")
+                self._safe_append_auto_log("🔄 启动异步数据处理...")
+                self._start_async_dataset_processing(dialog)
+            else:
+                # 直接调用YOLO导出功能
+                logger.info("📦 调用YOLO导出功能...")
+                self._safe_append_auto_log("📦 调用YOLO导出功能...")
+                self.call_yolo_export_and_configure(dialog)
 
         except Exception as e:
             error_msg = f"执行自动配置失败: {str(e)}"
@@ -5185,6 +5452,178 @@ class AIAssistantPanel(QWidget):
             self._safe_append_auto_log(f"❌ {error_msg}")
             return source_dir  # 出错时返回原目录
 
+    def _start_async_dataset_processing(self, dialog):
+        """启动异步数据集处理"""
+        try:
+            # 获取主窗口
+            main_window = None
+            parent = self.parent()
+            while parent:
+                if hasattr(parent, 'last_open_dir') and hasattr(parent, 'open_dir_dialog'):
+                    main_window = parent
+                    break
+                parent = parent.parent()
+
+            if not main_window:
+                self._safe_append_auto_log("❌ 无法获取主窗口")
+                return
+
+            source_dir = main_window.last_open_dir
+            if not source_dir:
+                self._safe_append_auto_log("❌ 源目录未设置")
+                return
+
+            # 准备配置
+            config = {
+                'dataset_name': self.dataset_name_edit.text(),
+                'train_ratio': self.train_ratio_spin.value(),
+                'output_dir': self.output_dir_edit.text(),
+                'shuffle': self.shuffle_checkbox.isChecked(),
+                'annotation_format': self.annotation_format_combo.currentData() if hasattr(self, 'annotation_format_combo') else 'auto',
+                'clean_existing': self.clean_existing_checkbox.isChecked() if hasattr(self, 'clean_existing_checkbox') else True,
+                'backup_existing': self.backup_existing_checkbox.isChecked() if hasattr(self, 'backup_existing_checkbox') else False,
+                'exclude_trained': self.exclude_trained_checkbox.isChecked() if hasattr(self, 'exclude_trained_checkbox') else True,
+                'strict_matching': self.strict_matching_checkbox.isChecked() if hasattr(self, 'strict_matching_checkbox') else False,
+                'is_image_trained_func': self.is_image_trained if hasattr(self, 'is_image_trained') else None
+            }
+
+            # 创建异步处理线程
+            self.async_processor = AsyncDatasetProcessorThread(source_dir, config, self)
+
+            # 连接信号
+            self.async_processor.progress_updated.connect(self._on_async_progress_updated)
+            self.async_processor.log_updated.connect(self._on_async_log_updated)
+            self.async_processor.stage_completed.connect(self._on_async_stage_completed)
+            self.async_processor.processing_finished.connect(self._on_async_processing_finished)
+            self.async_processor.processing_cancelled.connect(self._on_async_processing_cancelled)
+
+            # 保存对话框引用，供回调使用
+            self.current_dialog = dialog
+
+            # 启动线程
+            self.async_processor.start()
+
+        except Exception as e:
+            logger.error(f"启动异步处理失败: {str(e)}")
+            self._safe_append_auto_log(f"❌ 启动异步处理失败: {str(e)}")
+
+    def _on_async_progress_updated(self, progress, status):
+        """异步处理进度更新回调"""
+        self.auto_progress_bar.setValue(progress)
+        self._safe_append_auto_log(f"📊 {status} ({progress}%)")
+
+    def _on_async_log_updated(self, message):
+        """异步处理日志更新回调"""
+        self._safe_append_auto_log(message)
+
+    def _on_async_stage_completed(self, stage, data):
+        """异步处理阶段完成回调"""
+        if stage == "scan":
+            count = data.get("filtered_files_count", 0)
+            self._safe_append_auto_log(f"✅ 文件扫描完成，找到 {count} 个有效文件")
+        elif stage == "filter":
+            result_dir = data.get("result_dir", "")
+            self._safe_append_auto_log(f"✅ 数据过滤完成，结果目录: {result_dir}")
+
+    def _on_async_processing_finished(self, success, error_msg, result_dir):
+        """异步处理完成回调"""
+        try:
+            if success:
+                self._safe_append_auto_log("✅ 异步数据处理完成，继续YOLO导出...")
+                # 临时修改源目录为过滤后的目录
+                if hasattr(self, 'temp_source_dir'):
+                    del self.temp_source_dir
+                self.temp_source_dir = result_dir
+                # 继续执行YOLO导出
+                self.call_yolo_export_and_configure(self.current_dialog)
+            else:
+                self._safe_append_auto_log(f"❌ 异步数据处理失败: {error_msg}")
+                # 清理临时文件
+                self._cleanup_temp_files()
+                # 重新启用按钮
+                self._restore_ui_state()
+                # 显示错误
+                from PyQt5.QtWidgets import QMessageBox
+                QMessageBox.critical(self.current_dialog, "处理失败", f"数据处理失败：\n\n{error_msg}")
+
+        except Exception as e:
+            logger.error(f"处理异步回调失败: {str(e)}")
+            self._cleanup_temp_files()
+            self._restore_ui_state()
+
+    def _on_async_processing_cancelled(self):
+        """异步处理取消回调"""
+        self._safe_append_auto_log("🛑 用户取消了数据处理")
+        self._cleanup_temp_files()
+        self._restore_ui_state()
+
+    def _restore_ui_state(self):
+        """恢复UI状态"""
+        if hasattr(self, 'start_config_btn'):
+            self.start_config_btn.setEnabled(True)
+            self.start_config_btn.setText("🚀 开始配置")
+        if hasattr(self, 'auto_progress_bar'):
+            self.auto_progress_bar.setVisible(False)
+        if hasattr(self, 'cancel_btn'):
+            self.cancel_btn.setText("取消")
+
+    def _handle_cancel_button(self, dialog):
+        """处理取消按钮点击事件"""
+        try:
+            # 检查是否有正在运行的异步处理线程
+            if hasattr(self, 'async_processor') and self.async_processor and self.async_processor.isRunning():
+                # 取消异步处理
+                self._safe_append_auto_log("🛑 正在取消异步处理...")
+                self.async_processor.cancel()
+                self.cancel_btn.setText("⏳ 取消中...")
+                self.cancel_btn.setEnabled(False)
+
+                # 等待线程结束（最多等待3秒）
+                if self.async_processor.wait(3000):
+                    self._safe_append_auto_log("✅ 异步处理已取消")
+                else:
+                    self._safe_append_auto_log("⚠️ 强制终止异步处理")
+                    self.async_processor.terminate()
+                    self.async_processor.wait()
+
+                # 清理临时文件
+                self._cleanup_temp_files()
+
+                # 恢复UI状态
+                self._restore_ui_state()
+
+                # 关闭对话框
+                dialog.reject()
+            else:
+                # 没有异步处理在运行，直接关闭对话框
+                dialog.reject()
+
+        except Exception as e:
+            logger.error(f"处理取消按钮失败: {str(e)}")
+            dialog.reject()
+
+    def _cleanup_temp_files(self):
+        """清理临时文件"""
+        try:
+            import os
+            if hasattr(self, 'async_processor') and self.async_processor and hasattr(self.async_processor, 'temp_dir'):
+                temp_dir = self.async_processor.temp_dir
+                if temp_dir and os.path.exists(temp_dir):
+                    import shutil
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                    self._safe_append_auto_log(f"🗑️ 已清理临时目录: {temp_dir}")
+
+            # 清理实例属性
+            if hasattr(self, 'temp_source_dir'):
+                del self.temp_source_dir
+            if hasattr(self, 'async_processor'):
+                self.async_processor = None
+            if hasattr(self, 'current_dialog'):
+                del self.current_dialog
+
+        except Exception as e:
+            logger.error(f"清理临时文件失败: {str(e)}")
+
     def call_yolo_export_and_configure(self, dialog):
         """调用YOLO导出功能并配置训练路径"""
         try:
@@ -5265,12 +5704,16 @@ class AIAssistantPanel(QWidget):
             else:
                 self._safe_append_auto_log("✅ 将包含所有图片（包括已训练的）")
 
-            # 准备源目录（如果需要过滤，先创建过滤后的目录）
+            # 准备源目录（检查是否有来自异步处理的过滤目录）
             filtered_source_dir = source_dir
-            if exclude_trained and self.training_history_manager:
-                self._safe_append_auto_log("🔍 正在检查已训练的图片...")
-                filtered_source_dir = self._create_filtered_source_dir(
-                    source_dir, dialog)
+            if hasattr(self, 'temp_source_dir') and self.temp_source_dir:
+                # 使用异步处理后的过滤目录
+                filtered_source_dir = self.temp_source_dir
+                self._safe_append_auto_log(f"📁 使用异步过滤后的目录: {filtered_source_dir}")
+            elif exclude_trained and self.training_history_manager:
+                # 回退到同步处理（保持兼容性）
+                self._safe_append_auto_log("🔍 正在检查已训练的图片（同步模式）...")
+                filtered_source_dir = self._create_filtered_source_dir(source_dir, dialog)
             elif exclude_trained and not self.training_history_manager:
                 self._safe_append_auto_log("⚠️ 无法排除已训练图片，将使用所有图片")
             else:
