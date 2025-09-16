@@ -633,11 +633,22 @@ class MainWindow(QMainWindow, WindowMixin):
 
         # 初始化渐进式图片管理器（用于大数据集快速启动）
         try:
-            self.progressive_image_manager = ProgressiveImageManager(self)
-            print("[DEBUG] 渐进式图片管理器初始化成功")
+            # 使用保守的多线程模式，确保不影响系统性能
+            self.progressive_image_manager = ProgressiveImageManager(
+                self,
+                use_multithreading=True,
+                performance_mode="conservative"  # 使用保守模式，避免系统卡顿
+            )
+            print("[DEBUG] 渐进式图片管理器初始化成功 (保守多线程模式)")
         except Exception as e:
             print(f"[WARNING] 渐进式图片管理器初始化失败: {e}")
-            self.progressive_image_manager = None
+            # 如果多线程版本失败，尝试单线程版本
+            try:
+                self.progressive_image_manager = ProgressiveImageManager(self, use_multithreading=False)
+                print("[DEBUG] 渐进式图片管理器初始化成功 (单线程备用模式)")
+            except Exception as e2:
+                print(f"[ERROR] 渐进式图片管理器完全初始化失败: {e2}")
+                self.progressive_image_manager = None
 
         # Load predefined classes to the list
         print(f"[DEBUG] 开始加载预设类文件...")
@@ -1158,6 +1169,10 @@ class MainWindow(QMainWindow, WindowMixin):
         image_crop = action('✂️ 图片裁剪', self.show_image_crop_dialog,
                            'Ctrl+Shift+C', 'image_crop', '批量裁剪图片和标注文件')
 
+        # 缓存管理动作
+        cache_manage = action('🗑️ 缓存管理', self.show_cache_management_dialog,
+                             'Ctrl+Shift+M', 'cache_manage', '管理训练数据缓存')
+
         # Store actions for further handling.
         self.actions = Struct(save=save, save_format=save_format, saveAs=save_as, open=open, close=close, resetAll=reset_all, deleteImg=delete_image,
                               lineColor=color1, create=create, delete=delete, edit=edit, copy=copy,
@@ -1233,6 +1248,7 @@ class MainWindow(QMainWindow, WindowMixin):
             batch_operations, batch_copy, batch_delete, None,
             project_manage, project_new, project_switch, None,
             image_crop, None,
+            cache_manage, None,
             shortcut_config, reset_delete_confirmation))
 
         self.menus.file.aboutToShow.connect(self.update_file_menu)
@@ -1400,6 +1416,9 @@ class MainWindow(QMainWindow, WindowMixin):
         
         # 最终确保状态栏可见（在所有初始化完成后）
         QTimer.singleShot(100, self.ensure_status_bar_visible)
+
+        # 启动时自动清理过期缓存（7天前）
+        QTimer.singleShot(2000, self.auto_cleanup_expired_cache)
 
     def on_project_switched(self, project_name: str):
         """处理项目切换事件 - 完全重置到新项目的干净环境"""
@@ -6311,6 +6330,17 @@ class MainWindow(QMainWindow, WindowMixin):
             from PyQt5.QtWidgets import QMessageBox
             QMessageBox.critical(self, "错误", f"无法打开图片裁剪对话框:\n{str(e)}")
 
+    def show_cache_management_dialog(self):
+        """显示缓存管理对话框"""
+        try:
+            from libs.cache_management_dialog import CacheManagementDialog
+            dialog = CacheManagementDialog(self)
+            dialog.exec_()
+        except Exception as e:
+            print(f"[ERROR] 显示缓存管理对话框失败: {str(e)}")
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "错误", f"无法打开缓存管理对话框:\n{str(e)}")
+
     def create_new_project(self):
         """创建新项目"""
         try:
@@ -6391,14 +6421,40 @@ class MainWindow(QMainWindow, WindowMixin):
             # 刷新项目选择器
             if hasattr(self, 'project_selector'):
                 self.project_selector.refresh_projects()
-            
+
             # 重新加载类别配置
             if hasattr(self, 'class_manager'):
                 self.class_manager.load_classes()
-                
+
             print("[项目管理] 界面刷新完成")
         except Exception as e:
             print(f"[ERROR] 项目切换后刷新界面失败: {str(e)}")
+
+    def auto_cleanup_expired_cache(self):
+        """启动时自动清理过期缓存"""
+        try:
+            from libs.cache_manager import cache_manager
+
+            # 后台执行缓存清理，避免阻塞UI
+            result = cache_manager.clean_old_cache(days_old=7)
+
+            # 如果清理了文件，显示通知
+            if result['cleaned_files'] > 0 or result['cleaned_dirs'] > 0:
+                freed_size = cache_manager.format_size(result['freed_size'])
+                print(f"[缓存管理] 自动清理了7天前的缓存，释放空间: {freed_size}")
+
+                # 在状态栏显示简短通知
+                if hasattr(self, 'statusBar'):
+                    self.statusBar().showMessage(
+                        f"🧹 已自动清理过期缓存，释放空间: {freed_size}",
+                        3000
+                    )
+            else:
+                print("[缓存管理] 没有发现需要清理的过期缓存")
+
+        except Exception as e:
+            print(f"[WARNING] 自动清理缓存失败: {str(e)}")
+            # 自动清理失败不应该影响程序正常运行
 
     def reset_workspace_state(self):
         """重置工作区状态到干净环境"""

@@ -11,6 +11,9 @@ import logging
 from datetime import datetime
 from typing import Optional, List, Dict
 
+# 导入缓存管理器
+from libs.cache_manager import cache_manager
+
 try:
     from PyQt5.QtWidgets import *
     from PyQt5.QtCore import *
@@ -331,7 +334,7 @@ class InstallThread(QThread):
 
 
 class AsyncDatasetProcessorThread(QThread):
-    """异步数据集处理线程，用于优化大量图片的处理性能"""
+    """多线程异步数据集处理线程，优化大量图片处理性能"""
 
     # 信号定义
     progress_updated = pyqtSignal(int, str)  # 进度百分比，当前状态描述
@@ -361,6 +364,15 @@ class AsyncDatasetProcessorThread(QThread):
         # 用于检查图片训练状态的函数
         self.is_image_trained_func = config.get('is_image_trained_func')
 
+        # 多线程配置
+        import os
+        self.max_workers = min(max(os.cpu_count() * 2, 4), 16)  # 线程数：CPU核心数x2，最少4个，最多16个
+        self.batch_size = max(50, self.max_workers * 5)  # 批处理大小
+
+        # 线程安全计数器
+        self.processed_count = 0
+        self.progress_lock = QMutex()
+
     def cancel(self):
         """取消处理"""
         self.is_cancelled = True
@@ -369,7 +381,8 @@ class AsyncDatasetProcessorThread(QThread):
     def run(self):
         """主处理流程"""
         try:
-            self.log_updated.emit("🚀 开始异步处理数据集...")
+            self.log_updated.emit("🚀 开始多线程异步处理数据集...")
+            self.log_updated.emit(f"⚡ 使用 {self.max_workers} 个工作线程")
             self.progress_updated.emit(0, "正在扫描文件...")
 
             # 阶段1：扫描和过滤文件
@@ -407,9 +420,10 @@ class AsyncDatasetProcessorThread(QThread):
             self.processing_finished.emit(False, str(e), "")
 
     def _scan_and_filter_files(self):
-        """扫描和过滤文件"""
+        """多线程扫描和过滤文件"""
         try:
             import os
+            from concurrent.futures import ThreadPoolExecutor, as_completed
 
             # 获取所有文件列表
             self.log_updated.emit("📋 正在扫描文件...")
@@ -446,32 +460,49 @@ class AsyncDatasetProcessorThread(QThread):
             self.log_updated.emit(f"✅ 将使用 {format_name} 格式的标注文件")
             self.progress_updated.emit(20, f"扫描到 {len(annotation_files)} 个标注文件")
 
-            # 查找对应的图片文件
+            # 多线程查找对应的图片文件
             image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif']
             valid_pairs = []
 
-            total_files = len(annotation_files)
-            for i, annotation_file in enumerate(annotation_files):
+            # 将标注文件分块进行并行处理
+            def find_matching_image(annotation_file):
+                """查找单个标注文件对应的图片"""
                 if self.is_cancelled:
                     return None
 
-                # 更新进度（20-50%用于文件扫描）
-                if i % max(1, total_files // 10) == 0:
-                    progress = 20 + int((i / total_files) * 30)
-                    self.progress_updated.emit(progress, f"扫描文件对 {i+1}/{total_files}")
-
-                # 查找对应的图片
                 base_name = os.path.splitext(annotation_file)[0]
-                image_file = None
-
                 for ext in image_extensions:
                     potential_image = os.path.join(self.source_dir, base_name + ext)
                     if os.path.exists(potential_image):
-                        image_file = base_name + ext
-                        break
+                        return (annotation_file, base_name + ext)
+                return None
 
-                if image_file:
-                    valid_pairs.append((annotation_file, image_file))
+            total_files = len(annotation_files)
+            self.processed_count = 0
+
+            # 使用线程池并行处理文件匹配
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                # 提交所有任务
+                future_to_annotation = {
+                    executor.submit(find_matching_image, annotation_file): annotation_file
+                    for annotation_file in annotation_files
+                }
+
+                # 收集结果
+                for future in as_completed(future_to_annotation):
+                    if self.is_cancelled:
+                        return None
+
+                    result = future.result()
+                    if result:
+                        valid_pairs.append(result)
+
+                    # 线程安全的进度更新
+                    with QMutexLocker(self.progress_lock):
+                        self.processed_count += 1
+                        if self.processed_count % max(1, total_files // 10) == 0:
+                            progress = 20 + int((self.processed_count / total_files) * 30)
+                            self.progress_updated.emit(progress, f"匹配文件 {self.processed_count}/{total_files}")
 
             self.log_updated.emit(f"📊 找到 {len(valid_pairs)} 对有效的图片-标注文件")
             self.progress_updated.emit(50, f"找到 {len(valid_pairs)} 对有效文件")
@@ -495,33 +526,65 @@ class AsyncDatasetProcessorThread(QThread):
             return None
 
     def _filter_untrained_files(self, valid_pairs):
-        """过滤出未训练的文件"""
+        """多线程过滤出未训练的文件"""
         try:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            import os
+
             if not self.is_image_trained_func:
                 self.log_updated.emit("⚠️ 无法检查训练状态，将使用所有文件")
                 return valid_pairs
 
-            self.log_updated.emit("🔍 正在检查图片训练状态...")
+            self.log_updated.emit("🔍 正在多线程检查图片训练状态...")
 
             untrained_files = []
             trained_count = 0
             total_files = len(valid_pairs)
+            self.processed_count = 0
 
-            for i, (annotation_file, image_file) in enumerate(valid_pairs):
+            def check_training_status(file_pair):
+                """检查单个文件的训练状态"""
                 if self.is_cancelled:
                     return None
 
-                # 更新进度（50-80%用于训练状态检查）
-                if i % max(1, total_files // 20) == 0:
-                    progress = 50 + int((i / total_files) * 30)
-                    self.progress_updated.emit(progress, f"检查训练状态 {i+1}/{total_files}")
-
+                annotation_file, image_file = file_pair
                 image_path = os.path.join(self.source_dir, image_file)
 
-                if not self.is_image_trained_func(image_path, self.strict_matching):
-                    untrained_files.append((annotation_file, image_file))
-                else:
-                    trained_count += 1
+                try:
+                    is_trained = self.is_image_trained_func(image_path, self.strict_matching)
+                    return (file_pair, is_trained)
+                except Exception as e:
+                    # 单个文件检查失败，记录日志但不中断整体流程
+                    self.log_updated.emit(f"⚠️ 检查文件训练状态失败: {image_file} - {e}")
+                    return (file_pair, False)  # 默认认为未训练
+
+            # 使用线程池并行检查训练状态
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                # 提交所有任务
+                future_to_pair = {
+                    executor.submit(check_training_status, pair): pair
+                    for pair in valid_pairs
+                }
+
+                # 收集结果
+                for future in as_completed(future_to_pair):
+                    if self.is_cancelled:
+                        return None
+
+                    result = future.result()
+                    if result:
+                        file_pair, is_trained = result
+                        if not is_trained:
+                            untrained_files.append(file_pair)
+                        else:
+                            trained_count += 1
+
+                    # 线程安全的进度更新
+                    with QMutexLocker(self.progress_lock):
+                        self.processed_count += 1
+                        if self.processed_count % max(1, total_files // 10) == 0:
+                            progress = 50 + int((self.processed_count / total_files) * 30)
+                            self.progress_updated.emit(progress, f"检查训练状态 {self.processed_count}/{total_files}")
 
             self.log_updated.emit(f"🚫 排除已训练图片: {trained_count} 张")
             self.log_updated.emit(f"✅ 保留未训练图片: {len(untrained_files)} 张")
@@ -539,27 +602,39 @@ class AsyncDatasetProcessorThread(QThread):
             return valid_pairs
 
     def _create_filtered_directory(self, filtered_files):
-        """创建过滤后的临时目录"""
+        """多线程创建过滤后的临时目录"""
         try:
             import tempfile
             import shutil
+            import os
+            from concurrent.futures import ThreadPoolExecutor, as_completed
 
             self.log_updated.emit("📁 正在创建过滤后的目录...")
 
-            # 创建临时目录
-            self.temp_dir = tempfile.mkdtemp(prefix="labelimg_filtered_")
-            self.log_updated.emit(f"📁 创建临时目录: {self.temp_dir}")
+            # 获取当前项目名称
+            current_project = "default"
+            try:
+                from libs.project_manager import get_project_manager
+                project_name = get_project_manager().get_current_project()
+                if project_name:
+                    current_project = project_name
+            except Exception:
+                pass
 
-            # 复制文件
+            # 使用项目内缓存目录替代系统临时目录
+            self.temp_dir = cache_manager.create_filtered_dataset_dir(current_project, "filtered")
+            self.log_updated.emit(f"📁 创建项目缓存目录: {self.temp_dir}")
+
             total_files = len(filtered_files)
-            for i, (annotation_file, image_file) in enumerate(filtered_files):
+            self.processed_count = 0
+            failed_files = []
+
+            def copy_file_pair(file_pair):
+                """复制单对文件（标注文件和图片文件）"""
                 if self.is_cancelled:
                     return None
 
-                # 更新进度（80-95%用于文件复制）
-                if i % max(1, total_files // 20) == 0:
-                    progress = 80 + int((i / total_files) * 15)
-                    self.progress_updated.emit(progress, f"复制文件 {i+1}/{total_files}")
+                annotation_file, image_file = file_pair
 
                 try:
                     # 复制标注文件
@@ -572,11 +647,44 @@ class AsyncDatasetProcessorThread(QThread):
                     dst_image = os.path.join(self.temp_dir, image_file)
                     shutil.copy2(src_image, dst_image)
 
-                except Exception as copy_error:
-                    self.log_updated.emit(f"⚠️ 复制文件失败: {annotation_file}, {image_file} - {copy_error}")
-                    # 继续处理其他文件
+                    return True
 
-            self.log_updated.emit(f"📋 已复制 {len(filtered_files)} 对文件到临时目录")
+                except Exception as copy_error:
+                    return f"复制文件失败: {annotation_file}, {image_file} - {copy_error}"
+
+            # 使用线程池并行复制文件
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                # 提交所有任务
+                future_to_pair = {
+                    executor.submit(copy_file_pair, pair): pair
+                    for pair in filtered_files
+                }
+
+                # 收集结果
+                for future in as_completed(future_to_pair):
+                    if self.is_cancelled:
+                        return None
+
+                    result = future.result()
+                    if result is not True:  # 如果不是成功状态
+                        if result:  # 如果有错误信息
+                            failed_files.append(result)
+                            self.log_updated.emit(f"⚠️ {result}")
+
+                    # 线程安全的进度更新
+                    with QMutexLocker(self.progress_lock):
+                        self.processed_count += 1
+                        if self.processed_count % max(1, total_files // 10) == 0:
+                            progress = 80 + int((self.processed_count / total_files) * 15)
+                            self.progress_updated.emit(progress, f"复制文件 {self.processed_count}/{total_files}")
+
+            # 报告结果
+            success_count = total_files - len(failed_files)
+            self.log_updated.emit(f"📋 成功复制 {success_count}/{total_files} 对文件到临时目录")
+
+            if failed_files:
+                self.log_updated.emit(f"⚠️ {len(failed_files)} 个文件复制失败，但不影响整体流程")
+
             self.progress_updated.emit(95, "文件复制完成")
 
             return self.temp_dir
@@ -5300,9 +5408,19 @@ class AIAssistantPanel(QWidget):
             else:
                 self._safe_append_auto_log("🔍 使用智能匹配模式（路径+文件名）")
 
-            # 创建临时目录
-            temp_dir = tempfile.mkdtemp(prefix="labelimg_filtered_")
-            self._safe_append_auto_log(f"📁 创建临时目录: {temp_dir}")
+            # 获取当前项目名称
+            current_project = "default"
+            try:
+                from libs.project_manager import get_project_manager
+                project_name = get_project_manager().get_current_project()
+                if project_name:
+                    current_project = project_name
+            except Exception:
+                pass
+
+            # 使用项目内缓存目录替代系统临时目录
+            temp_dir = cache_manager.create_filtered_dataset_dir(current_project, "filtered")
+            self._safe_append_auto_log(f"📁 创建项目缓存目录: {temp_dir}")
             QApplication.processEvents()  # 更新UI
 
             # 扫描源目录中的图片和标注文件
