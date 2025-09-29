@@ -512,6 +512,8 @@ class MainWindow(QMainWindow, WindowMixin):
 
         # Load last opened directory from settings
         self.last_opened_dir = settings.get(SETTING_LAST_OPENED_DIR, None)
+        # 启动行为：是否自动加载上次目录（默认关闭，避免大目录导致启动卡顿）
+        self.auto_load_last_dir = bool(settings.get(SETTING_AUTO_LOAD_LAST_DIR, False))
 
         # Whether we need to save or not.
         self.dirty = False
@@ -1404,12 +1406,17 @@ class MainWindow(QMainWindow, WindowMixin):
         # 初始化快捷键管理系统
         self.setup_shortcut_manager()
 
-        # Open Dir if default file
+        # Open Dir if default file（命令行/参数指定目录时仍然直接加载）
         if self.file_path and os.path.isdir(self.file_path):
             self.open_dir_dialog(dir_path=self.file_path, silent=True)
-        # Auto-load last opened directory if no file specified
+        # 启动时的自动加载策略：默认不自动加载上次目录，改为提示
         elif self.last_opened_dir and os.path.exists(self.last_opened_dir):
-            self.open_dir_dialog(dir_path=self.last_opened_dir, silent=True)
+            if self.auto_load_last_dir:
+                # 用户已开启自动加载偏好
+                self.open_dir_dialog(dir_path=self.last_opened_dir, silent=True)
+            else:
+                # 延迟提示，避免阻塞首屏渲染
+                QTimer.singleShot(200, self._prompt_load_last_dir_if_needed)
 
         # 初始化性能监控系统（在所有组件初始化完成后）
         self.setup_performance_monitoring()
@@ -4149,6 +4156,9 @@ class MainWindow(QMainWindow, WindowMixin):
         settings[SETTING_DRAW_SQUARE] = self.draw_squares_option.isChecked()
         settings[SETTING_LABEL_FILE_FORMAT] = self.label_file_format
 
+        # 保存启动行为偏好设置：是否自动加载上次目录
+        settings[SETTING_AUTO_LOAD_LAST_DIR] = bool(getattr(self, 'auto_load_last_dir', False))
+
         # 保存用户缩放偏好设置
         settings['user_preferred_zoom_enabled'] = self.user_preferred_zoom_enabled
         settings['user_preferred_zoom_mode'] = self.user_preferred_zoom_mode
@@ -4333,6 +4343,53 @@ class MainWindow(QMainWindow, WindowMixin):
         self.import_dir_images(target_dir_path)
         # 移除重复调用show_bounding_box_from_annotation_file
         # 因为在load_file中已经调用过了
+
+    def _prompt_load_last_dir_if_needed(self):
+        """启动时提示是否加载上次目录，避免大目录拖慢启动。
+        - 提供“立即加载/跳过加载”选项
+        - 可勾选“记住选择”，更新 self.auto_load_last_dir 并持久化
+        """
+        try:
+            if not (self.last_opened_dir and os.path.exists(self.last_opened_dir)):
+                return
+
+            from PyQt5.QtWidgets import QMessageBox, QCheckBox
+
+            last_count = self.settings.get(SETTING_LAST_DIR_IMAGE_COUNT, None)
+            dir_display = self.last_opened_dir
+            title = '是否加载上次目录？'
+            if isinstance(last_count, int) and last_count > 0:
+                text = (f"检测到上次目录：\n{dir_display}\n\n"
+                        f"预计包含 {last_count} 张图片。\n"
+                        f"为避免启动变慢，建议按需选择目录。\n是否现在加载？")
+            else:
+                text = (f"检测到上次目录：\n{dir_display}\n\n"
+                        f"大型目录会显著拖慢启动。\n是否现在加载？")
+
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Question)
+            box.setWindowTitle(title)
+            box.setText(text)
+            load_btn = box.addButton('立即加载', QMessageBox.AcceptRole)
+            skip_btn = box.addButton('跳过加载', QMessageBox.RejectRole)
+
+            remember_cb = QCheckBox('记住我的选择（下次自动应用）')
+            box.setCheckBox(remember_cb)
+
+            box.exec_()
+
+            accepted = (box.clickedButton() == load_btn)
+            remember = remember_cb.isChecked()
+
+            if remember:
+                self.auto_load_last_dir = bool(accepted)
+                self.settings[SETTING_AUTO_LOAD_LAST_DIR] = self.auto_load_last_dir
+                self.settings.save()
+
+            if accepted:
+                self.open_dir_dialog(dir_path=self.last_opened_dir, silent=True)
+        except Exception as e:
+            print(f"[WARNING] 启动加载上次目录提示失败: {e}")
 
     def import_dir_images(self, dir_path):
         """导入目录图片 - 使用渐进式加载优化大数据集启动速度"""

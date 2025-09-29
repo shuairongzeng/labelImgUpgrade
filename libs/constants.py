@@ -21,3 +21,9 @@ SETTING_LAST_OPENED_DIR = 'lastOpenedDir'
 SETTING_YOLO_EXPORT_DIR = 'yoloExportDir'
 SETTING_MODEL_EXPORT_DIR = 'modelExportDir'
 DEFAULT_ENCODING = 'utf-8'
+
+# 新增：启动行为与目录统计配置
+# 是否在启动时自动加载上次打开的目录（默认 False，避免大目录导致启动卡顿）
+SETTING_AUTO_LOAD_LAST_DIR = 'autoLoadLastDir'
+# 上次目录的图片数量统计（用于后续优化与提示，非必需）
+SETTING_LAST_DIR_IMAGE_COUNT = 'lastDirImageCount'

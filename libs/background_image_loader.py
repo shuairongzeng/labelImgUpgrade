@@ -15,6 +15,7 @@ from PyQt5.QtCore import QThread, pyqtSignal, QMutex, QMutexLocker, QTimer
 from PyQt5.QtGui import QImage, QImageReader
 from libs.ustr import ustr
 from libs.utils import natural_sort
+from libs.constants import SETTING_LAST_DIR_IMAGE_COUNT
 
 # 尝试导入psutil，如果没有则使用简化版本
 try:
@@ -670,6 +671,14 @@ class ProgressiveImageManager:
         self.all_images = all_images
         self.main_window.m_img_list = all_images
         self.main_window.img_count = len(all_images)
+
+        # 写回目录图片数量统计，供下次启动提示使用
+        try:
+            if hasattr(self.main_window, 'settings') and self.main_window.settings:
+                self.main_window.settings[SETTING_LAST_DIR_IMAGE_COUNT] = len(all_images)
+                self.main_window.settings.save()
+        except Exception as e:
+            print(f"[WARNING] 写入上次目录图片数量失败: {e}")
 
         # 更新UI状态
         self.main_window.update_switch_button_state()
