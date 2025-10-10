@@ -219,6 +219,37 @@ class YOLOTrainer(QObject):
             val_images = list(val_path.glob(
                 "*.jpg")) + list(val_path.glob("*.png")) + list(val_path.glob("*.jpeg"))
 
+            # 兼容 .txt 清单：如 train/val 指向清单文件，则改为按清单读取
+            try:
+                if train_path.is_file() and str(train_path).lower().endswith('.txt'):
+                    tmp = []
+                    with open(train_path, 'r', encoding='utf-8') as f:
+                        for line in f:
+                            p = line.strip().strip('"').strip("'")
+                            if not p:
+                                continue
+                            ip = Path(p)
+                            if not ip.is_absolute():
+                                ip = (train_path.parent / ip).resolve()
+                            if ip.exists():
+                                tmp.append(ip)
+                    train_images = tmp
+                if val_path.is_file() and str(val_path).lower().endswith('.txt'):
+                    tmp = []
+                    with open(val_path, 'r', encoding='utf-8') as f:
+                        for line in f:
+                            p = line.strip().strip('"').strip("'")
+                            if not p:
+                                continue
+                            ip = Path(p)
+                            if not ip.is_absolute():
+                                ip = (val_path.parent / ip).resolve()
+                            if ip.exists():
+                                tmp.append(ip)
+                    val_images = tmp
+            except Exception as e:
+                self.log_message.emit(f"❌ 读取清单失败: {e}")
+
             self.log_message.emit(f"📊 训练图片数量: {len(train_images)}")
             self.log_message.emit(f"📊 验证图片数量: {len(val_images)}")
 

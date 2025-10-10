@@ -128,5 +128,16 @@
       "confidence_level": "中",
       "timestamp": "2025-09-06 13:13:01"
     }
-  ]
+  ],
+  "multi_dir_training": {
+    "enabled": true,
+    "dirs": [
+      "D:/搜狗高速下载/ShareX-17.0.0-portable/ShareX/Screenshots/2025-08old",
+      "D:/搜狗高速下载/ShareX-17.0.0-portable/ShareX/Screenshots/2025-09",
+      "D:/GitHub/AutoFlow/AutoFlow/debug_images/originals"
+    ],
+    "val_ratio": 10,
+    "deduplicate": true,
+    "require_labels": true
+  }
 }

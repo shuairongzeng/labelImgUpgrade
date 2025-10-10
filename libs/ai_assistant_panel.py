@@ -1180,6 +1180,12 @@ class AIAssistantPanel(QWidget):
         self.training_history_manager = None
         self.smart_epochs_calculator = SmartEpochsCalculator()
         self.training_config_manager = TrainingConfigManager()
+        self.training_monitor_tab = None
+        self.merged_table = None
+        self.merged_summary_label = None
+        self.mm_stats_table = None
+        self.mm_stats_summary_label = None
+        self.mm_stats_refresh_btn = None
 
         # 界面状态
         self.current_predictions = []
@@ -2741,13 +2747,28 @@ class AIAssistantPanel(QWidget):
             data_tab = self.create_data_config_tab()
             tab_widget.addTab(data_tab, "📁 数据配置")
 
-            # 第二个标签页：训练参数
+            # 新增：多目录合并训练
+            try:
+                multi_tab = self.create_multi_merge_tab()
+                tab_widget.addTab(multi_tab, "📦 多目录合并")
+            except Exception as _:
+                pass
+
+            # 合并数据集管理
+            manager_tab = self.create_merged_dataset_manager_tab()
+            tab_widget.addTab(manager_tab, "🗂 合并数据集")
+
+            # 训练参数配置
             params_tab = self.create_training_params_tab()
             tab_widget.addTab(params_tab, "⚙️ 训练参数")
 
-            # 第三个标签页：训练监控
+            # 训练监控
             monitor_tab = self.create_training_monitor_tab()
             tab_widget.addTab(monitor_tab, "📈 训练监控")
+            try:
+                self.training_monitor_tab = monitor_tab
+            except Exception:
+                pass
 
             layout.addWidget(tab_widget)
 
@@ -2853,6 +2874,83 @@ class AIAssistantPanel(QWidget):
             dataset_layout.addRow("🏷️ 训练类别:", self.classes_info_label)
 
             layout.addWidget(dataset_group)
+
+            # 多目录合并训练模块（默认折叠，避免打扰现有流程）
+            multi_group = QGroupBox("📦 多目录合并训练")
+            multi_form = QFormLayout(multi_group)
+
+            # 启用开关
+            self.multi_dir_enable_cb = QCheckBox("启用多目录合并（自动生成train/val清单）")
+            self.multi_dir_enable_cb.setChecked(False)
+            multi_form.addRow("模式：", self.multi_dir_enable_cb)
+
+            # 目录列表 + 操作按钮
+            hl_dirs = QHBoxLayout()
+            self.multi_dir_list = QListWidget()
+            self.multi_dir_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+            hl_dirs.addWidget(self.multi_dir_list, 3)
+            btns = QVBoxLayout()
+            add_btn = QPushButton("添加目录…")
+            add_btn.clicked.connect(self.on_multi_add_dirs)
+            rm_btn = QPushButton("移除选中")
+            rm_btn.clicked.connect(self.on_multi_remove_selected)
+            clr_btn = QPushButton("清空")
+            clr_btn.clicked.connect(self.on_multi_clear)
+            btns.addWidget(add_btn)
+            btns.addWidget(rm_btn)
+            btns.addWidget(clr_btn)
+            btns.addStretch()
+            hl_dirs.addLayout(btns, 1)
+            multi_form.addRow("目录：", hl_dirs)
+
+            # 验证集策略：默认每目录10%
+            self.multi_val_ratio = QSpinBox()
+            self.multi_val_ratio.setRange(1, 40)
+            self.multi_val_ratio.setValue(10)
+            self.multi_val_ratio.setSuffix("%")
+            multi_form.addRow("验证比例：", self.multi_val_ratio)
+
+            # 其他选项
+            opts = QHBoxLayout()
+            self.multi_dedup_cb = QCheckBox("去重")
+            self.multi_dedup_cb.setChecked(True)
+            self.multi_require_lbl_cb = QCheckBox("仅含标签")
+            self.multi_require_lbl_cb.setChecked(True)
+            opts.addWidget(self.multi_dedup_cb)
+            opts.addWidget(self.multi_require_lbl_cb)
+            opts.addStretch()
+            multi_form.addRow("选项：", opts)
+
+            # 生成按钮
+            gen_btn = QPushButton("生成清单并应用")
+            gen_btn.clicked.connect(self.on_multi_generate)
+            multi_form.addRow("", gen_btn)
+
+            multi_group.setVisible(False)
+            layout.addWidget(multi_group)
+
+            # 从偏好加载多目录配置
+            try:
+                prefs = self.training_config_manager.get_multi_dir_training()
+                # 恢复开关
+                self.multi_dir_enable_cb.setChecked(bool(prefs.get('enabled', False)))
+                # 恢复目录
+                for d in prefs.get('dirs', []) or []:
+                    self.multi_dir_list.addItem(d)
+                # 恢复选项
+                self.multi_val_ratio.setValue(int(prefs.get('val_ratio', 10)))
+                self.multi_dedup_cb.setChecked(bool(prefs.get('deduplicate', True)))
+                self.multi_require_lbl_cb.setChecked(bool(prefs.get('require_labels', True)))
+            except Exception:
+                pass
+
+            # 绑定变更即保存偏好
+            try:
+                self.multi_val_ratio.valueChanged.connect(lambda *_: self._save_multi_dir_prefs())
+                self.multi_dedup_cb.toggled.connect(lambda *_: self._save_multi_dir_prefs())
+                self.multi_require_lbl_cb.toggled.connect(lambda *_: self._save_multi_dir_prefs())
+            except Exception:
+                pass
 
             # 类别源选择组
             classes_source_group = QGroupBox("🏷️ 类别源选择")
@@ -2976,12 +3074,1292 @@ class AIAssistantPanel(QWidget):
             layout.addWidget(log_group)
             layout.addStretch()
 
+            # 保障：在函数末尾尝试绑定多目录启用开关的联动（若控件存在）
+            try:
+                if hasattr(self, 'multi_dir_enable_cb'):
+                    self.multi_dir_enable_cb.toggled.connect(self.on_multi_toggle)
+            except Exception:
+                pass
+
             return tab
 
         except Exception as e:
             logger.error(f"创建数据配置标签页失败: {str(e)}")
             return QWidget()
 
+    # ============ 多目录合并训练：事件处理 ============
+    def on_multi_add_dirs(self):
+        """添加一个或多个目录到列表（允许多次添加）"""
+        try:
+            dialog = QFileDialog(self)
+            dialog.setFileMode(QFileDialog.Directory)
+            dialog.setOption(QFileDialog.ShowDirsOnly, True)
+            dialog.setOption(QFileDialog.DontUseNativeDialog, False)
+            if dialog.exec_() == QDialog.Accepted:
+                for sel in dialog.selectedFiles():
+                    if sel and os.path.isdir(sel):
+                        self.multi_dir_list.addItem(sel)
+                # 保存偏好
+                try:
+                    dirs = [self.multi_dir_list.item(i).text() for i in range(self.multi_dir_list.count())]
+                    self.training_config_manager.save_multi_dir_training(
+                        enabled=bool(self.multi_dir_enable_cb.isChecked()),
+                        dirs=dirs,
+                        val_ratio=int(self.multi_val_ratio.value()),
+                        deduplicate=bool(self.multi_dedup_cb.isChecked()),
+                        require_labels=bool(self.multi_require_lbl_cb.isChecked())
+                    )
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error(f"添加目录失败: {e}")
+
+    def on_multi_remove_selected(self):
+        try:
+            for item in self.multi_dir_list.selectedItems():
+                self.multi_dir_list.takeItem(self.multi_dir_list.row(item))
+            # 保存偏好
+            try:
+                dirs = [self.multi_dir_list.item(i).text() for i in range(self.multi_dir_list.count())]
+                self.training_config_manager.save_multi_dir_training(
+                    enabled=bool(self.multi_dir_enable_cb.isChecked()),
+                    dirs=dirs,
+                    val_ratio=int(self.multi_val_ratio.value()),
+                    deduplicate=bool(self.multi_dedup_cb.isChecked()),
+                    require_labels=bool(self.multi_require_lbl_cb.isChecked())
+                )
+            except Exception:
+                pass
+        except Exception as e:
+            logger.error(f"移除失败: {e}")
+
+    def on_multi_clear(self):
+        try:
+            self.multi_dir_list.clear()
+            # 保存偏好
+            try:
+                self.training_config_manager.save_multi_dir_training(
+                    enabled=bool(self.multi_dir_enable_cb.isChecked()),
+                    dirs=[],
+                    val_ratio=int(self.multi_val_ratio.value()),
+                    deduplicate=bool(self.multi_dedup_cb.isChecked()),
+                    require_labels=bool(self.multi_require_lbl_cb.isChecked())
+                )
+            except Exception:
+                pass
+        except Exception as e:
+            logger.error(f"清空失败: {e}")
+
+    def on_multi_generate(self):
+        """根据所选目录生成 train.txt/val.txt 与 data.yaml，并回填到配置输入框"""
+        try:
+            if not getattr(self, 'multi_dir_enable_cb', None) or not self.multi_dir_enable_cb.isChecked():
+                try:
+                    from PyQt5.QtWidgets import QMessageBox
+                    QMessageBox.information(self, "提示", "请先勾选‘多目录合并训练’开关")
+                except Exception:
+                    pass
+                return
+
+            dirs = [self.multi_dir_list.item(i).text() for i in range(self.multi_dir_list.count())]
+            if not dirs:
+                QMessageBox.warning(self, "提示", "请先添加至少一个目录")
+                return
+
+            val_ratio = max(1, min(40, int(self.multi_val_ratio.value()))) / 100.0
+            require_labels = self.multi_require_lbl_cb.isChecked()
+            dedup = self.multi_dedup_cb.isChecked()
+
+            # 显示进度对话框，避免无反馈
+            from PyQt5.QtWidgets import QProgressDialog, QApplication
+            from PyQt5.QtCore import Qt
+            _progress = None
+            try:
+                _progress = QProgressDialog("正在生成清单…", "取消", 0, 0, self)
+                _progress.setWindowModality(Qt.ApplicationModal)
+                _progress.setMinimumDuration(0)
+                _progress.setAutoClose(True)
+                _progress.show()
+                QApplication.processEvents()
+            except Exception:
+                _progress = None
+
+            from libs.dataset_utils.dataset_list_builder import build_merged_voc_dirs
+            # 进度回调，输出到‘数据配置日志’区域
+            def _progress_cb(event, path, payload=None):
+                try:
+                    if event == 'dir_start':
+                        self._safe_append_data_log(f"📂 开始处理目录: {path}")
+                    elif event == 'dir_skip':
+                        self._safe_append_data_log(f"⚠️ 跳过目录: {path}（缺少 images/）")
+                    elif event == 'dir_done' and isinstance(payload, dict):
+                        msg = (
+                            f"✅ 完成: {path} | 候选: {payload.get('considered',0)} | "
+                            f"train: {payload.get('train',0)} | val: {payload.get('val',0)} | 去重: {payload.get('duplicates',0)}"
+                        )
+                        self._safe_append_data_log(msg)
+                except Exception:
+                    pass
+
+            # 起始日志
+            try:
+                self._safe_append_data_log(
+                    f"🚀 开始生成清单：目录数={len(dirs)}，验证比例={int(val_ratio*100)}%，去重={dedup}，仅含标签={require_labels}")
+            except Exception:
+                pass
+
+            result = build_merged_voc_dirs(
+                dirs,
+                val_ratio=val_ratio,
+                progress=_progress_cb
+            )
+
+            try:
+                if _progress:
+                    _progress.close()
+            except Exception:
+                pass
+
+            yaml_path = result['yaml']
+
+            # 同步写入项目训练偏好，记住最近一次的数据集配置
+            try:
+                from libs.project_config_adapter import get_config_adapter
+                get_config_adapter().save_training_preferences({'dataset_yaml': yaml_path})
+            except Exception:
+                pass
+
+            # 保存多目录偏好，便于下次自动加载
+            try:
+                self.training_config_manager.save_multi_dir_training(
+                    enabled=True,
+                    dirs=dirs,
+                    val_ratio=int(self.multi_val_ratio.value()),
+                    deduplicate=bool(self.multi_dedup_cb.isChecked()),
+                    require_labels=bool(self.multi_require_lbl_cb.isChecked())
+                )
+                self._safe_append_data_log("💾 已保存多目录合并训练偏好配置")
+            except Exception:
+                pass
+
+            # 回填 data.yaml 至输入框
+            if hasattr(self, 'dataset_config_edit'):
+                self.dataset_config_edit.setText(yaml_path)
+                try:
+                    self.on_dataset_config_changed(yaml_path)
+                except Exception:
+                    pass
+
+            # 提示信息/标签更新（如果存在）
+            if hasattr(self, 'config_info_label'):
+                extra = ""
+                try:
+                    extra = f"\n统计：train={result.get('train_count',0)}，val={result.get('val_count',0)}，跳过={result.get('skipped',0)}"
+                except Exception:
+                    pass
+                self.config_info_label.setText(f"已生成YOLO数据集：\n{yaml_path}{extra}")
+            if hasattr(self, 'train_path_label'):
+                self.train_path_label.setText('images/train (相对数据集)')
+            if hasattr(self, 'val_path_label'):
+                self.val_path_label.setText('images/val (相对数据集)')
+
+            # 同步统计面板
+            try:
+                total = int(result.get('train_count', 0)) + int(result.get('val_count', 0))
+                if hasattr(self, 'stats_images_label'):
+                    self.stats_images_label.setText(str(total))
+                if hasattr(self, 'stats_train_label'):
+                    self.stats_train_label.setText(str(result.get('train_count', 0)))
+                if hasattr(self, 'stats_val_label'):
+                    self.stats_val_label.setText(str(result.get('val_count', 0)))
+            except Exception:
+                pass
+
+            # 从激活项目 configs/class_config.yaml 读取类别并显示（若可用）
+            try:
+                from libs.project_manager import get_project_manager
+                from libs.class_manager import ClassConfigManager
+                pm = get_project_manager()
+                cfg_dir = pm.get_project_config_path(pm.get_current_project())
+                mgr = ClassConfigManager(str(cfg_dir))
+                classes = mgr.get_class_list()
+                if hasattr(self, 'classes_info_label') and classes:
+                    self.classes_info_label.setText(f"{len(classes)} 类：{classes}")
+            except Exception:
+                pass
+
+            # 结束日志与提示
+            try:
+                done_msg = (
+                    f"🎉 生成完成：train={result.get('train_count',0)}，val={result.get('val_count',0)}，"
+                    f"跳过={result.get('skipped',0)}，输出目录={result.get('workdir','')}"
+                )
+                self._safe_append_data_log(done_msg)
+            except Exception:
+                pass
+            QMessageBox.information(self, "完成", "已生成YOLO数据集并应用到训练配置")
+
+        except Exception as e:
+            logger.error(f"生成清单失败: {e}")
+
+    def on_multi_toggle(self, enabled: bool):
+        """启用/禁用多目录模式时，同步禁用/启用 data.yaml 输入控件"""
+        try:
+            if hasattr(self, 'dataset_config_edit') and self.dataset_config_edit is not None:
+                self.dataset_config_edit.setEnabled(not enabled)
+            # 若后续需要，也可以禁用浏览/信息按钮
+            if hasattr(self, 'dataset_config_browse_btn') and self.dataset_config_browse_btn is not None:
+                try:
+                    self.dataset_config_browse_btn.setEnabled(not enabled)
+                except Exception:
+                    pass
+            if hasattr(self, 'dataset_config_info_btn') and self.dataset_config_info_btn is not None:
+                try:
+                    self.dataset_config_info_btn.setEnabled(not enabled)
+                except Exception:
+                    pass
+            # 保存偏好
+            try:
+                dirs = [self.multi_dir_list.item(i).text() for i in range(self.multi_dir_list.count())]
+                self.training_config_manager.save_multi_dir_training(
+                    enabled=bool(enabled),
+                    dirs=dirs,
+                    val_ratio=int(self.multi_val_ratio.value()),
+                    deduplicate=bool(self.multi_dedup_cb.isChecked()),
+                    require_labels=bool(self.multi_require_lbl_cb.isChecked())
+                )
+                try:
+                    self.refresh_multi_dir_stats()
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        except Exception as _:
+            pass
+
+    def _save_multi_dir_prefs(self):
+        """保存当前多目录合并训练偏好"""
+        try:
+            dirs = [self.multi_dir_list.item(i).text() for i in range(self.multi_dir_list.count())]
+            self.training_config_manager.save_multi_dir_training(
+                enabled=bool(self.multi_dir_enable_cb.isChecked()),
+                dirs=dirs,
+                val_ratio=int(self.multi_val_ratio.value()),
+                deduplicate=bool(self.multi_dedup_cb.isChecked()),
+                require_labels=bool(self.multi_require_lbl_cb.isChecked())
+            )
+        except Exception:
+            pass
+
+    
+    def create_multi_merge_tab(self):
+        """Create a tab for merging multiple VOC dirs into a YOLO dataset."""
+        try:
+            from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
+                                         QFormLayout, QPushButton, QCheckBox, QLabel,
+                                         QListWidget, QAbstractItemView, QSpinBox,
+                                         QFileDialog, QMessageBox, QProgressDialog,
+                                         QTableWidget, QTableWidgetItem, QHeaderView)
+            from PyQt5.QtCore import Qt
+            import os
+
+            tab = QWidget()
+            layout = QVBoxLayout(tab)
+
+            hint = QLabel("Merge multiple VOC folders (images + XML) into one YOLO dataset")
+            layout.addWidget(hint)
+
+            group = QGroupBox("Multi-dir Merge (VOC -> YOLO)")
+            form = QFormLayout(group)
+
+            self.mm_enable_cb = QCheckBox("Enable multi-dir merge")
+            self.mm_enable_cb.setChecked(True)
+            self.mm_enable_cb.toggled.connect(self.mm_on_toggle)
+            form.addRow("Mode:", self.mm_enable_cb)
+
+            dirs_layout = QHBoxLayout()
+            self.mm_dir_list = QListWidget()
+            self.mm_dir_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+            dirs_layout.addWidget(self.mm_dir_list, 3)
+            vbtns = QVBoxLayout()
+            btn_add = QPushButton("Add dirs…")
+            btn_add.clicked.connect(self.mm_add_dirs)
+            btn_rm = QPushButton("Remove selected")
+            btn_rm.clicked.connect(self.mm_remove_selected)
+            btn_clr = QPushButton("Clear")
+            btn_clr.clicked.connect(self.mm_clear)
+            vbtns.addWidget(btn_add)
+            vbtns.addWidget(btn_rm)
+            vbtns.addWidget(btn_clr)
+            vbtns.addStretch()
+            dirs_layout.addLayout(vbtns, 1)
+            form.addRow("Dirs:", dirs_layout)
+
+            self.mm_val_ratio = QSpinBox()
+            self.mm_val_ratio.setRange(1, 40)
+            self.mm_val_ratio.setValue(10)
+            self.mm_val_ratio.setSuffix("%")
+            form.addRow("Val ratio:", self.mm_val_ratio)
+
+            opts = QHBoxLayout()
+            self.mm_dedup_cb = QCheckBox("Deduplicate")
+            self.mm_dedup_cb.setChecked(True)
+            self.mm_require_lbl_cb = QCheckBox("Require XML")
+            self.mm_require_lbl_cb.setChecked(True)
+            opts.addWidget(self.mm_dedup_cb)
+            opts.addWidget(self.mm_require_lbl_cb)
+            opts.addStretch()
+            form.addRow("Options:", opts)
+
+            btn_gen = QPushButton("Build YOLO dataset and apply")
+            btn_gen.clicked.connect(self.mm_generate)
+            form.addRow("", btn_gen)
+
+            layout.addWidget(group)
+
+            # 目录统计表格
+            stats_group = QGroupBox("已选目录统计")
+            stats_layout = QVBoxLayout(stats_group)
+
+            controls_layout = QHBoxLayout()
+            self.mm_stats_refresh_btn = QPushButton("🔄 刷新统计")
+            self.mm_stats_refresh_btn.clicked.connect(self.refresh_multi_dir_stats)
+            controls_layout.addWidget(self.mm_stats_refresh_btn)
+
+            self.mm_stats_open_btn = QPushButton("📂 打开目录")
+            self.mm_stats_open_btn.clicked.connect(self.open_selected_multi_dir)
+            controls_layout.addWidget(self.mm_stats_open_btn)
+            self.mm_stats_open_btn.setEnabled(False)
+
+            controls_layout.addStretch()
+            stats_layout.addLayout(controls_layout)
+
+            self.mm_stats_table = QTableWidget()
+            self.mm_stats_table.setColumnCount(9)
+            self.mm_stats_table.setHorizontalHeaderLabels([
+                "目录", "图片总数", "有效图片", "缺少标注", "预计Train", "预计Val", "目录大小", "更新时间", "状态"
+            ])
+            self.mm_stats_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+            self.mm_stats_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+            self.mm_stats_table.setEditTriggers(QTableWidget.NoEditTriggers)
+            self.mm_stats_table.verticalHeader().setVisible(False)
+            header = self.mm_stats_table.horizontalHeader()
+            try:
+                header.setSectionResizeMode(0, QHeaderView.Stretch)
+            except Exception:
+                pass
+            self.mm_stats_table.doubleClicked.connect(lambda *_: self.open_selected_multi_dir())
+            stats_layout.addWidget(self.mm_stats_table)
+
+            try:
+                self.mm_stats_table.selectionModel().selectionChanged.connect(
+                    lambda *_: self._update_mm_stats_buttons())
+            except Exception:
+                pass
+
+            self.mm_stats_summary_label = QLabel("未选择任何目录。")
+            self.mm_stats_summary_label.setStyleSheet("color: #7f8c8d; font-style: italic;")
+            stats_layout.addWidget(self.mm_stats_summary_label)
+
+            layout.addWidget(stats_group)
+
+            # Load prefs
+            try:
+                prefs = self.training_config_manager.get_multi_dir_training()
+                self.mm_enable_cb.setChecked(bool(prefs.get('enabled', True)))
+                for d in prefs.get('dirs', []) or []:
+                    self.mm_dir_list.addItem(d)
+                self.mm_val_ratio.setValue(int(prefs.get('val_ratio', 10)))
+                self.mm_dedup_cb.setChecked(bool(prefs.get('deduplicate', True)))
+                self.mm_require_lbl_cb.setChecked(bool(prefs.get('require_labels', True)))
+            except Exception:
+                pass
+
+            try:
+                self.mm_val_ratio.valueChanged.connect(lambda *_: self.mm_save_prefs())
+                self.mm_dedup_cb.toggled.connect(lambda *_: self.mm_save_prefs())
+                self.mm_require_lbl_cb.toggled.connect(lambda *_: self.mm_save_prefs())
+            except Exception:
+                pass
+
+            # 初始刷新统计
+            self.refresh_multi_dir_stats()
+
+            return tab
+
+        except Exception as e:
+            logger.error(f"create_multi_merge_tab failed: {str(e)}")
+            return QWidget()
+
+    def refresh_multi_dir_stats(self):
+        """刷新多目录合并页的目录统计信息"""
+        try:
+            if not hasattr(self, 'mm_stats_table') or self.mm_stats_table is None:
+                return
+
+            dirs = [self.mm_dir_list.item(i).text() for i in range(self.mm_dir_list.count())]
+            if not dirs:
+                self.mm_stats_table.setRowCount(0)
+                if self.mm_stats_summary_label:
+                    self.mm_stats_summary_label.setStyleSheet("color: #7f8c8d; font-style: italic;")
+                    self.mm_stats_summary_label.setText("未选择任何目录。")
+                self._update_mm_stats_buttons()
+                return
+
+            try:
+                val_ratio = max(1, min(40, int(self.mm_val_ratio.value()))) / 100.0
+            except Exception:
+                val_ratio = 0.10
+
+            require_labels = True
+            try:
+                require_labels = bool(self.mm_require_lbl_cb.isChecked())
+            except Exception:
+                require_labels = True
+
+            dedup = False
+            try:
+                dedup = bool(self.mm_dedup_cb.isChecked())
+            except Exception:
+                dedup = False
+
+            from PyQt5.QtWidgets import QApplication, QProgressDialog
+            from PyQt5.QtCore import Qt
+
+            progress = None
+            if len(dirs) > 4:
+                try:
+                    progress = QProgressDialog("正在统计目录…", "取消", 0, len(dirs), self)
+                    progress.setWindowModality(Qt.WindowModal)
+                    progress.setMinimumDuration(0)
+                    progress.setValue(0)
+                except Exception:
+                    progress = None
+
+            rows = []
+            total_size = 0
+            total_usable = 0
+            total_missing = 0
+            global_seen = set() if dedup else None
+
+            for idx, directory in enumerate(dirs, start=1):
+                if progress:
+                    try:
+                        progress.setValue(idx - 1)
+                        progress.setLabelText(f"统计 {directory}…")
+                        QApplication.processEvents()
+                        if progress.wasCanceled():
+                            break
+                    except Exception:
+                        pass
+
+                info = self._collect_multi_dir_stats(directory, val_ratio, require_labels, dedup, global_seen)
+                if info:
+                    rows.append(info)
+                    total_size += info.get('size', 0)
+                    total_usable += info.get('usable_images', 0)
+                    total_missing += info.get('missing_labels', 0)
+
+            if progress:
+                try:
+                    progress.setValue(len(rows))
+                    progress.close()
+                except Exception:
+                    pass
+
+            self._populate_multi_dir_stats_table(rows)
+
+            if self.mm_stats_summary_label:
+                if rows:
+                    summary = (
+                        f"共 {len(rows)} 个目录，预计可用图片 {total_usable}，"
+                        f"缺少标注 {total_missing}，总占用 {self._format_file_size(total_size)}"
+                    )
+                    self.mm_stats_summary_label.setStyleSheet("color: #2c3e50;")
+                    self.mm_stats_summary_label.setText(summary)
+                else:
+                    self.mm_stats_summary_label.setStyleSheet("color: #7f8c8d; font-style: italic;")
+                    self.mm_stats_summary_label.setText("未选择任何目录。")
+
+            self._update_mm_stats_buttons()
+
+        except Exception as e:
+            logger.error(f"刷新多目录统计信息失败: {str(e)}")
+
+    def _collect_multi_dir_stats(self, directory, val_ratio, require_labels, dedup, global_seen):
+        try:
+            from pathlib import Path
+            import os
+            from datetime import datetime
+            try:
+                from libs.dataset_utils.dataset_list_builder import _stable_bucket
+            except ImportError:
+                def _stable_bucket(value: str) -> int:
+                    import hashlib
+                    h = hashlib.md5(value.encode('utf-8')).digest()
+                    return int.from_bytes(h[:4], 'little') % 100
+
+            path = Path(directory)
+            info = {
+                'name': path.name,
+                'path': str(path.resolve()) if path.exists() else str(directory),
+                'total_images': 0,
+                'usable_images': 0,
+                'missing_labels': 0,
+                'train_est': 0,
+                'val_est': 0,
+                'size': 0,
+                'updated_at': None,
+                'status': ''
+            }
+
+            if not path.exists() or not path.is_dir():
+                info['status'] = "❌ 路径不存在"
+                return info
+
+            try:
+                info['updated_at'] = datetime.fromtimestamp(path.stat().st_mtime)
+            except Exception:
+                info['updated_at'] = None
+
+            image_exts = {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp'}
+            threshold = max(0, min(100, int(val_ratio * 100)))
+
+            for root, _, files in os.walk(str(path)):
+                for fname in files:
+                    file_path = Path(root) / fname
+                    try:
+                        info['size'] += file_path.stat().st_size
+                    except Exception:
+                        pass
+
+                    if file_path.suffix.lower() not in image_exts:
+                        continue
+
+                    info['total_images'] += 1
+                    xml_path = file_path.with_suffix('.xml')
+                    has_xml = xml_path.exists()
+                    if not has_xml:
+                        info['missing_labels'] += 1
+                        if require_labels:
+                            continue
+
+                    resolved = None
+                    if dedup and global_seen is not None:
+                        try:
+                            resolved = str(file_path.resolve())
+                        except Exception:
+                            resolved = str(file_path)
+                        if resolved in global_seen:
+                            continue
+                        global_seen.add(resolved)
+
+                    info['usable_images'] += 1
+                    try:
+                        rel_key = str(file_path).replace(str(path), '')
+                        bucket = _stable_bucket(rel_key)
+                        if bucket < threshold:
+                            info['val_est'] += 1
+                        else:
+                            info['train_est'] += 1
+                    except Exception:
+                        info['train_est'] += 1
+
+            if info['total_images'] == 0:
+                info['status'] = "⚠️ 未找到图片"
+            elif info['usable_images'] == 0:
+                info['status'] = "⚠️ 无可用图片"
+            elif info['missing_labels'] > 0 and require_labels:
+                info['status'] = f"⚠️ 缺少 {info['missing_labels']} 个标注"
+            else:
+                info['status'] = "✅ 可用"
+
+            return info
+
+        except Exception as e:
+            logger.error(f"统计目录信息失败({directory}): {str(e)}")
+            return None
+
+    def _populate_multi_dir_stats_table(self, rows):
+        try:
+            table = getattr(self, 'mm_stats_table', None)
+            if table is None:
+                return
+
+            from PyQt5.QtCore import Qt
+            from PyQt5.QtGui import QColor
+            from datetime import datetime
+            from PyQt5.QtWidgets import QTableWidgetItem
+
+            table.setSortingEnabled(False)
+            table.setRowCount(0)
+
+            if not rows:
+                table.setSortingEnabled(True)
+                return
+
+            for row_idx, info in enumerate(rows):
+                table.insertRow(row_idx)
+
+                name_item = QTableWidgetItem(info.get('name', '未知目录'))
+                name_item.setData(Qt.UserRole, info.get('path', ''))
+                table.setItem(row_idx, 0, name_item)
+
+                table.setItem(row_idx, 1, QTableWidgetItem(str(info.get('total_images', 0))))
+                table.setItem(row_idx, 2, QTableWidgetItem(str(info.get('usable_images', 0))))
+                table.setItem(row_idx, 3, QTableWidgetItem(str(info.get('missing_labels', 0))))
+                table.setItem(row_idx, 4, QTableWidgetItem(str(info.get('train_est', 0))))
+                table.setItem(row_idx, 5, QTableWidgetItem(str(info.get('val_est', 0))))
+                table.setItem(row_idx, 6, QTableWidgetItem(self._format_file_size(info.get('size', 0))))
+
+                updated = info.get('updated_at')
+                updated_text = updated.strftime("%Y-%m-%d %H:%M") if isinstance(updated, datetime) else "-"
+                table.setItem(row_idx, 7, QTableWidgetItem(updated_text))
+
+                status_item = QTableWidgetItem(info.get('status', ''))
+                table.setItem(row_idx, 8, status_item)
+
+                status_text = info.get('status', '') or ''
+                if '⚠️' in status_text:
+                    color = QColor('#fef3c7')
+                elif '❌' in status_text:
+                    color = QColor('#fdecea')
+                else:
+                    color = None
+
+                if color:
+                    for col in range(table.columnCount()):
+                        item = table.item(row_idx, col)
+                        if item:
+                            item.setBackground(color)
+
+            table.resizeColumnsToContents()
+            table.setSortingEnabled(True)
+
+        except Exception as e:
+            logger.error(f"填充多目录统计表失败: {str(e)}")
+
+    def open_selected_multi_dir(self):
+        try:
+            import os
+            table = getattr(self, 'mm_stats_table', None)
+            if table is None or table.selectionModel() is None:
+                return
+
+            selected_rows = table.selectionModel().selectedRows()
+            if not selected_rows:
+                return
+
+            row = selected_rows[0].row()
+            item = table.item(row, 0)
+            if not item:
+                return
+
+            path = item.data(Qt.UserRole)
+            if not path or not os.path.exists(path):
+                from PyQt5.QtWidgets import QMessageBox
+                QMessageBox.warning(self, "提示", "目录不存在或已被删除。")
+                return
+
+            try:
+                import sys
+                import subprocess
+                if sys.platform.startswith('win'):
+                    os.startfile(path)
+                elif sys.platform == 'darwin':
+                    subprocess.Popen(['open', path])
+                else:
+                    subprocess.Popen(['xdg-open', path])
+            except Exception as e:
+                from PyQt5.QtWidgets import QMessageBox
+                QMessageBox.warning(self, "提示", f"打开目录失败: {e}")
+
+        except Exception as e:
+            logger.error(f"打开目录失败: {str(e)}")
+
+    def _update_mm_stats_buttons(self):
+        try:
+            has_selection = False
+            if hasattr(self, 'mm_stats_table') and self.mm_stats_table is not None:
+                model = self.mm_stats_table.selectionModel()
+                if model is not None:
+                    has_selection = len(model.selectedRows()) > 0
+            if hasattr(self, 'mm_stats_open_btn') and self.mm_stats_open_btn is not None:
+                self.mm_stats_open_btn.setEnabled(has_selection)
+        except Exception:
+            pass
+
+    def create_merged_dataset_manager_tab(self):
+        """创建合并数据集管理标签页"""
+        try:
+            from PyQt5.QtWidgets import (
+                QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+                QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView,
+                QMessageBox
+            )
+            from PyQt5.QtCore import Qt
+
+            tab = QWidget()
+            layout = QVBoxLayout(tab)
+            layout.setSpacing(8)
+
+            desc = QLabel("查看并管理 datasets/_merged 下的历史合并数据集，支持查看空间占用、使用状态并删除冗余目录。")
+            desc.setWordWrap(True)
+            layout.addWidget(desc)
+
+            btn_layout = QHBoxLayout()
+            self.merged_refresh_btn = QPushButton("🔄 刷新列表")
+            self.merged_refresh_btn.clicked.connect(self.refresh_merged_datasets)
+            btn_layout.addWidget(self.merged_refresh_btn)
+
+            self.merged_open_btn = QPushButton("📂 打开目录")
+            self.merged_open_btn.clicked.connect(self.open_selected_merged_dataset)
+            btn_layout.addWidget(self.merged_open_btn)
+
+            self.merged_delete_btn = QPushButton("🗑️ 删除所选")
+            self.merged_delete_btn.setStyleSheet("color: #c0392b; font-weight: bold;")
+            self.merged_delete_btn.clicked.connect(self.delete_selected_merged_datasets)
+            btn_layout.addWidget(self.merged_delete_btn)
+
+            btn_layout.addStretch()
+            layout.addLayout(btn_layout)
+
+            self.merged_table = QTableWidget()
+            self.merged_table.setColumnCount(7)
+            self.merged_table.setHorizontalHeaderLabels([
+                "数据集目录", "训练图像", "验证图像", "标签文件", "占用空间", "更新时间", "状态"
+            ])
+            self.merged_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+            self.merged_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+            self.merged_table.setEditTriggers(QTableWidget.NoEditTriggers)
+            header = self.merged_table.horizontalHeader()
+            header.setStretchLastSection(True)
+            try:
+                header.setSectionResizeMode(0, QHeaderView.Stretch)
+            except Exception:
+                pass
+            self.merged_table.verticalHeader().setVisible(False)
+            self.merged_table.doubleClicked.connect(lambda *_: self.open_selected_merged_dataset())
+            layout.addWidget(self.merged_table)
+
+            self.merged_summary_label = QLabel("未检测到历史合并数据集。")
+            self.merged_summary_label.setStyleSheet("color: #7f8c8d; font-style: italic;")
+            layout.addWidget(self.merged_summary_label)
+
+            # 初始化加载
+            self.refresh_merged_datasets()
+
+            return tab
+
+        except Exception as e:
+            logger.error(f"create_merged_dataset_manager_tab failed: {str(e)}")
+            from PyQt5.QtWidgets import QWidget
+            return QWidget()
+
+    def refresh_merged_datasets(self):
+        """刷新 datasets/_merged 下的合并数据集列表"""
+        try:
+            from PyQt5.QtWidgets import QApplication, QProgressDialog
+            from PyQt5.QtCore import Qt
+            from pathlib import Path
+
+            table = getattr(self, 'merged_table', None)
+            if table is None:
+                return
+
+            base_dir = Path(os.getcwd()) / 'datasets' / '_merged'
+            rows = []
+
+            if not base_dir.exists():
+                try:
+                    base_dir.mkdir(parents=True, exist_ok=True)
+                except Exception:
+                    pass
+                self._populate_merged_dataset_table(rows)
+                return
+
+            dirs = [p for p in base_dir.iterdir() if p.is_dir()]
+            dirs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+
+            progress = None
+            if len(dirs) > 3:
+                try:
+                    progress = QProgressDialog("正在统计合并数据集...", "取消", 0, len(dirs), self)
+                    progress.setWindowModality(Qt.WindowModal)
+                    progress.setMinimumDuration(0)
+                    progress.setValue(0)
+                except Exception:
+                    progress = None
+
+            current_yaml = ''
+            if hasattr(self, 'dataset_config_edit') and self.dataset_config_edit:
+                try:
+                    current_yaml = self.dataset_config_edit.text().strip()
+                except Exception:
+                    current_yaml = ''
+            if not current_yaml:
+                try:
+                    from libs.project_config_adapter import get_config_adapter
+                    prefs = get_config_adapter().load_training_preferences()
+                    current_yaml = str(prefs.get('dataset_yaml', '') or '').strip()
+                except Exception:
+                    current_yaml = ''
+
+            cancelled = False
+            for idx, d in enumerate(dirs, 1):
+                if progress:
+                    try:
+                        progress.setValue(idx - 1)
+                        progress.setLabelText(f"统计 {d.name}...")
+                        QApplication.processEvents()
+                        if progress.wasCanceled():
+                            cancelled = True
+                            break
+                    except Exception:
+                        pass
+                info = self._collect_merged_dataset_info(d, current_yaml)
+                if info:
+                    rows.append(info)
+
+            if progress:
+                try:
+                    progress.setValue(len(rows))
+                except Exception:
+                    pass
+
+            if cancelled and rows:
+                self._safe_append_data_log("⚠️ 统计合并数据集被用户取消，仅部分结果已加载。")
+
+            self._populate_merged_dataset_table(rows)
+
+        except Exception as e:
+            logger.error(f"刷新合并数据集列表失败: {str(e)}")
+
+    def _collect_merged_dataset_info(self, dataset_dir, current_yaml: str) -> dict:
+        """统计单个合并数据集的基础信息"""
+        try:
+            from pathlib import Path
+            import os
+            from datetime import datetime
+
+            dataset_dir = Path(dataset_dir)
+            stat = dataset_dir.stat()
+
+            info = {
+                'name': dataset_dir.name,
+                'path': str(dataset_dir.resolve()),
+                'train_images': 0,
+                'val_images': 0,
+                'label_files': 0,
+                'size': 0,
+                'updated_at': datetime.fromtimestamp(stat.st_mtime),
+                'is_current': False,
+                'yaml': ''
+            }
+
+            img_exts = {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp'}
+
+            train_dir = dataset_dir / 'images' / 'train'
+            if train_dir.exists():
+                info['train_images'] = sum(1 for p in train_dir.iterdir() if p.suffix.lower() in img_exts)
+
+            val_dir = dataset_dir / 'images' / 'val'
+            if val_dir.exists():
+                info['val_images'] = sum(1 for p in val_dir.iterdir() if p.suffix.lower() in img_exts)
+
+            labels_train = dataset_dir / 'labels' / 'train'
+            if labels_train.exists():
+                info['label_files'] += sum(1 for p in labels_train.iterdir() if p.suffix.lower() == '.txt')
+
+            labels_val = dataset_dir / 'labels' / 'val'
+            if labels_val.exists():
+                info['label_files'] += sum(1 for p in labels_val.iterdir() if p.suffix.lower() == '.txt')
+
+            yaml_path = dataset_dir / 'data.yaml'
+            if yaml_path.exists():
+                info['yaml'] = str(yaml_path.resolve())
+
+            # 目录占用体积
+            total_size = 0
+            for root, _, files in os.walk(str(dataset_dir)):
+                for fname in files:
+                    try:
+                        total_size += (Path(root) / fname).stat().st_size
+                    except Exception:
+                        pass
+            info['size'] = total_size
+
+            if current_yaml:
+                try:
+                    current_path = Path(current_yaml).resolve()
+                    if info['yaml'] and current_path == Path(info['yaml']):
+                        info['is_current'] = True
+                except Exception:
+                    pass
+
+            return info
+
+        except Exception as e:
+            logger.error(f"统计合并数据集信息失败({dataset_dir}): {str(e)}")
+            return {}
+
+    def _populate_merged_dataset_table(self, rows):
+        try:
+            from PyQt5.QtCore import Qt
+            from PyQt5.QtGui import QColor
+            from datetime import datetime
+
+            table = getattr(self, 'merged_table', None)
+            if table is None:
+                return
+
+            table.setRowCount(0)
+            if not rows:
+                if self.merged_summary_label:
+                    self.merged_summary_label.setText("未检测到历史合并数据集。")
+                return
+
+            table.setSortingEnabled(False)
+            for row_idx, info in enumerate(rows):
+                table.insertRow(row_idx)
+
+                name_item = QTableWidgetItem(info.get('name', '未知数据集'))
+                name_item.setData(Qt.UserRole, info.get('path', ''))
+                table.setItem(row_idx, 0, name_item)
+
+                train_item = QTableWidgetItem(str(info.get('train_images', 0)))
+                table.setItem(row_idx, 1, train_item)
+
+                val_item = QTableWidgetItem(str(info.get('val_images', 0)))
+                table.setItem(row_idx, 2, val_item)
+
+                label_item = QTableWidgetItem(str(info.get('label_files', 0)))
+                table.setItem(row_idx, 3, label_item)
+
+                size_item = QTableWidgetItem(self._format_file_size(info.get('size', 0)))
+                table.setItem(row_idx, 4, size_item)
+
+                updated = info.get('updated_at')
+                if isinstance(updated, datetime):
+                    updated_text = updated.strftime("%Y-%m-%d %H:%M")
+                else:
+                    updated_text = "-"
+                updated_item = QTableWidgetItem(updated_text)
+                table.setItem(row_idx, 5, updated_item)
+
+                status_text = "当前使用" if info.get('is_current') else "-"
+                status_item = QTableWidgetItem(status_text)
+                table.setItem(row_idx, 6, status_item)
+
+                if info.get('is_current'):
+                    for col in range(table.columnCount()):
+                        item = table.item(row_idx, col)
+                        if item:
+                            item.setBackground(QColor("#e8f5e9"))
+
+            table.resizeColumnsToContents()
+            table.setSortingEnabled(True)
+
+            total_size = sum(info.get('size', 0) for info in rows)
+            summary = f"共 {len(rows)} 个合并数据集，总占用 {self._format_file_size(total_size)}"
+            if self.merged_summary_label:
+                self.merged_summary_label.setStyleSheet("color: #2c3e50;")
+                self.merged_summary_label.setText(summary)
+
+        except Exception as e:
+            logger.error(f"刷新合并数据集表格失败: {str(e)}")
+
+    def _format_file_size(self, size_bytes: int) -> str:
+        try:
+            size = float(size_bytes or 0)
+            units = ['B', 'KB', 'MB', 'GB', 'TB']
+            idx = 0
+            while size >= 1024 and idx < len(units) - 1:
+                size /= 1024.0
+                idx += 1
+            if idx == 0:
+                return f"{int(size)} {units[idx]}"
+            return f"{size:.2f} {units[idx]}"
+        except Exception:
+            return "-"
+
+    def delete_selected_merged_datasets(self):
+        try:
+            from PyQt5.QtWidgets import QMessageBox
+            from pathlib import Path
+            import shutil
+
+            table = getattr(self, 'merged_table', None)
+            if table is None or table.selectionModel() is None:
+                return
+
+            selected_rows = table.selectionModel().selectedRows()
+            if not selected_rows:
+                QMessageBox.information(self, "提示", "请选择至少一个需要删除的数据集目录。")
+                return
+
+            rows = sorted({idx.row() for idx in selected_rows}, reverse=True)
+            targets = []
+            names = []
+            for row in rows:
+                item = table.item(row, 0)
+                if not item:
+                    continue
+                path = item.data(Qt.UserRole)
+                if not path:
+                    continue
+                targets.append(Path(path))
+                names.append(item.text())
+
+            if not targets:
+                QMessageBox.information(self, "提示", "未获取到有效的目录路径。")
+                return
+
+            confirm = QMessageBox.question(
+                self,
+                "确认删除",
+                "确定要删除以下数据集目录吗？\n\n" + "\n".join(names),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if confirm != QMessageBox.Yes:
+                return
+
+            current_yaml = ''
+            if hasattr(self, 'dataset_config_edit') and self.dataset_config_edit:
+                try:
+                    current_yaml = self.dataset_config_edit.text().strip()
+                except Exception:
+                    current_yaml = ''
+            current_resolved = None
+            if current_yaml:
+                try:
+                    current_resolved = Path(current_yaml).resolve()
+                except Exception:
+                    current_resolved = None
+
+            removed_current = False
+            for target in targets:
+                try:
+                    resolved = target.resolve()
+                except Exception:
+                    resolved = target
+                try:
+                    shutil.rmtree(str(resolved))
+                    self._safe_append_data_log(f"🗑️ 已删除合并数据集: {resolved}")
+                    if current_resolved and str(current_resolved).startswith(str(resolved)):
+                        removed_current = True
+                except Exception as e:
+                    logger.error(f"删除合并数据集失败({target}): {str(e)}")
+                    QMessageBox.warning(self, "删除失败", f"删除 {target} 时出错: {e}")
+
+            if removed_current:
+                try:
+                    if hasattr(self, 'dataset_config_edit') and self.dataset_config_edit:
+                        self.dataset_config_edit.clear()
+                    from libs.project_config_adapter import get_config_adapter
+                    get_config_adapter().save_training_preferences({'dataset_yaml': ''})
+                except Exception:
+                    pass
+                self._safe_append_data_log("⚠️ 当前使用的数据集已被删除，已清空配置。")
+
+            self.refresh_merged_datasets()
+
+        except Exception as e:
+            logger.error(f"删除合并数据集失败: {str(e)}")
+
+    def open_selected_merged_dataset(self):
+        try:
+            from PyQt5.QtWidgets import QMessageBox
+            import os
+            import sys
+            import subprocess
+            from pathlib import Path
+
+            table = getattr(self, 'merged_table', None)
+            if table is None or table.selectionModel() is None:
+                return
+
+            selected_rows = table.selectionModel().selectedRows()
+            if not selected_rows:
+                QMessageBox.information(self, "提示", "请选择需要打开的目录。")
+                return
+
+            row = selected_rows[0].row()
+            item = table.item(row, 0)
+            if not item:
+                QMessageBox.warning(self, "提示", "未获取到目录信息。")
+                return
+
+            path = item.data(Qt.UserRole)
+            if not path or not os.path.exists(path):
+                QMessageBox.warning(self, "提示", "目录不存在或已被删除。")
+                return
+
+            try:
+                if sys.platform.startswith('win'):
+                    os.startfile(path)
+                elif sys.platform == 'darwin':
+                    subprocess.Popen(['open', path])
+                else:
+                    subprocess.Popen(['xdg-open', path])
+            except Exception as e:
+                QMessageBox.warning(self, "提示", f"打开目录失败: {e}")
+
+        except Exception as e:
+            logger.error(f"打开合并数据集目录失败: {str(e)}")
+
+    def mm_add_dirs(self):
+        try:
+            from PyQt5.QtWidgets import QFileDialog
+            dialog = QFileDialog(self)
+            dialog.setFileMode(QFileDialog.Directory)
+            dialog.setOption(QFileDialog.ShowDirsOnly, True)
+            if dialog.exec_() == QFileDialog.Accepted:
+                for sel in dialog.selectedFiles():
+                    if sel and os.path.isdir(sel):
+                        self.mm_dir_list.addItem(sel)
+                self.mm_save_prefs()
+        except Exception as e:
+            logger.error(f"mm_add_dirs failed: {e}")
+
+    def mm_remove_selected(self):
+        try:
+            for it in self.mm_dir_list.selectedItems():
+                self.mm_dir_list.takeItem(self.mm_dir_list.row(it))
+            self.mm_save_prefs()
+        except Exception as e:
+            logger.error(f"mm_remove_selected failed: {e}")
+
+    def mm_clear(self):
+        try:
+            self.mm_dir_list.clear()
+            self.mm_save_prefs()
+        except Exception as e:
+            logger.error(f"mm_clear failed: {e}")
+
+    def mm_on_toggle(self, enabled: bool):
+        try:
+            if hasattr(self, 'dataset_config_edit') and self.dataset_config_edit is not None:
+                self.dataset_config_edit.setEnabled(not enabled)
+            if hasattr(self, 'dataset_config_browse_btn') and self.dataset_config_browse_btn is not None:
+                try:
+                    self.dataset_config_browse_btn.setEnabled(not enabled)
+                except Exception:
+                    pass
+            if hasattr(self, 'dataset_config_info_btn') and self.dataset_config_info_btn is not None:
+                try:
+                    self.dataset_config_info_btn.setEnabled(not enabled)
+                except Exception:
+                    pass
+            self.mm_save_prefs()
+        except Exception:
+            pass
+
+    def mm_save_prefs(self):
+        try:
+            dirs = [self.mm_dir_list.item(i).text() for i in range(self.mm_dir_list.count())]
+            self.training_config_manager.save_multi_dir_training(
+                enabled=bool(self.mm_enable_cb.isChecked()),
+                dirs=dirs,
+                val_ratio=int(self.mm_val_ratio.value()),
+                deduplicate=bool(self.mm_dedup_cb.isChecked()),
+                require_labels=bool(self.mm_require_lbl_cb.isChecked())
+            )
+            try:
+                self.refresh_multi_dir_stats()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def mm_generate(self):
+        try:
+            from PyQt5.QtWidgets import QMessageBox, QProgressDialog, QApplication
+            from PyQt5.QtCore import Qt
+            if not self.mm_enable_cb.isChecked():
+                QMessageBox.information(self, "Tip", "Please enable multi-dir merge first")
+                return
+            dirs = [self.mm_dir_list.item(i).text() for i in range(self.mm_dir_list.count())]
+            if not dirs:
+                QMessageBox.warning(self, "Tip", "Please add at least one directory")
+                return
+            val_ratio = max(1, min(40, int(self.mm_val_ratio.value()))) / 100.0
+            prog = QProgressDialog("Building YOLO dataset…", "Cancel", 0, 0, self)
+            prog.setWindowModality(Qt.ApplicationModal)
+            prog.setMinimumDuration(0)
+            prog.show()
+            QApplication.processEvents()
+            def cb(ev, path, payload=None):
+                try:
+                    if ev == 'dir_start':
+                        self._safe_append_data_log(f"[start] {path}")
+                    elif ev == 'dir_skip':
+                        self._safe_append_data_log(f"[skip] {path} ({payload})")
+                    elif ev == 'dir_done' and isinstance(payload, dict):
+                        self._safe_append_data_log(
+                            f"[done] {path} | considered={payload.get('considered',0)} train={payload.get('train',0)} val={payload.get('val',0)} skip={payload.get('skipped',0)}")
+                except Exception:
+                    pass
+            from libs.dataset_utils.dataset_list_builder import build_merged_voc_dirs
+            result = build_merged_voc_dirs(dirs, val_ratio=val_ratio, progress=cb)
+            try:
+                prog.close()
+            except Exception:
+                pass
+            yaml_path = result.get('yaml', '')
+
+            # 同步写入项目训练偏好，记住最近一次的数据集配置
+            try:
+                from libs.project_config_adapter import get_config_adapter
+                get_config_adapter().save_training_preferences({'dataset_yaml': yaml_path})
+            except Exception:
+                pass
+            if hasattr(self, 'dataset_config_edit'):
+                self.dataset_config_edit.setText(yaml_path)
+                try:
+                    self.on_dataset_config_changed()
+                except Exception:
+                    pass
+            if hasattr(self, 'config_info_label'):
+                extra = f"\nSummary: train={result.get('train_count',0)}, val={result.get('val_count',0)}, skipped={result.get('skipped',0)}"
+                self.config_info_label.setText(f"Built YOLO dataset:\n{yaml_path}{extra}")
+            if hasattr(self, 'train_path_label'):
+                self.train_path_label.setText('images/train (relative)')
+            if hasattr(self, 'val_path_label'):
+                self.val_path_label.setText('images/val (relative)')
+            try:
+                total = int(result.get('train_count', 0)) + int(result.get('val_count', 0))
+                if hasattr(self, 'stats_images_label'):
+                    self.stats_images_label.setText(str(total))
+                if hasattr(self, 'stats_train_label'):
+                    self.stats_train_label.setText(str(result.get('train_count', 0)))
+                if hasattr(self, 'stats_val_label'):
+                    self.stats_val_label.setText(str(result.get('val_count', 0)))
+            except Exception:
+                pass
+
+            # 同步刷新合并数据集管理列表
+            try:
+                self.refresh_merged_datasets()
+            except Exception:
+                pass
+
+            self._safe_append_data_log(
+                f"DONE: train={result.get('train_count',0)} val={result.get('val_count',0)} skipped={result.get('skipped',0)} out={result.get('workdir','')}")
+            QMessageBox.information(self, "Done", "YOLO dataset built and applied.")
+        except Exception as e:
+            logger.error(f"mm_generate failed: {str(e)}")
+    def create_training_params_tab_stub(self):
+        try:
+            from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel
+            tab = QWidget()
+            layout = QVBoxLayout(tab)
+            layout.addWidget(QLabel("Training Params (stub)"))
+            return tab
+        except Exception:
+            from PyQt5.QtWidgets import QWidget
+            return QWidget()
     def create_training_params_tab(self):
         """创建训练参数标签页"""
         try:
@@ -3000,7 +4378,7 @@ class AIAssistantPanel(QWidget):
             epochs_layout = QHBoxLayout()
             self.epochs_spin = QSpinBox()
             self.epochs_spin.setRange(10, 1000)
-            self.epochs_spin.setValue(100)
+            self.epochs_spin.setValue(50)
             self.epochs_spin.setToolTip("训练轮数：模型训练的总轮数")
             epochs_layout.addWidget(self.epochs_spin)
 
@@ -4725,6 +6103,18 @@ class AIAssistantPanel(QWidget):
 
             config_path = getattr(self, 'dataset_config_edit', None)
             yaml_path = config_path.text().strip() if config_path else ""
+            # 若为空，尝试从项目训练偏好读取最近一次使用的数据集配置
+            if not yaml_path:
+                try:
+                    from libs.project_config_adapter import get_config_adapter
+                    prefs = get_config_adapter().load_training_preferences()
+                    alt_yaml = str(prefs.get('dataset_yaml', '') or '').strip()
+                    if alt_yaml:
+                        yaml_path = alt_yaml
+                        if hasattr(self, 'dataset_config_edit'):
+                            self.dataset_config_edit.setText(yaml_path)
+                except Exception:
+                    pass
 
             self._safe_append_log(f"📁 数据集配置路径: {yaml_path}")
             self._safe_append_log(f"📂 当前工作目录: {os.getcwd()}")
@@ -4810,6 +6200,13 @@ class AIAssistantPanel(QWidget):
 
                 # 启动真实训练
                 self.trainer.start_training(training_config)
+
+                # 训练发起后，记录当前数据集配置到项目偏好，便于下次默认加载
+                try:
+                    from libs.project_config_adapter import get_config_adapter
+                    get_config_adapter().save_training_preferences({'dataset_yaml': yaml_path})
+                except Exception:
+                    pass
 
         except Exception as e:
             logger.error(f"开始完整训练失败: {str(e)}")
@@ -5980,7 +7377,7 @@ class AIAssistantPanel(QWidget):
             data_yaml_path: 数据集配置文件路径
         """
         try:
-            image_files = self._extract_images_from_dataset_config(
+            image_files = self._extract_images_from_dataset_config_v2(
                 data_yaml_path)
             self._last_export_images = image_files
             self._safe_append_auto_log(f"📝 记录了 {len(image_files)} 张导出图片")
@@ -6260,34 +7657,26 @@ class AIAssistantPanel(QWidget):
             self._safe_append_data_log(f"❌ {error_msg}")
 
     def _load_user_preferences_for_dataset(self, config_path):
-        """为数据集加载用户偏好设置"""
+        """Ϊ���ݼ������û�ƫ������"""
         try:
             user_preference = self.training_config_manager.get_user_preference_for_dataset(config_path)
 
-            if user_preference and hasattr(self, 'epochs_spin'):
-                preferred_epochs = user_preference.get('preferred_epochs')
-                if preferred_epochs and preferred_epochs != self.epochs_spin.value():
-                    # 询问用户是否要应用之前的偏好设置
-                    from PyQt5.QtWidgets import QMessageBox
-                    reply = QMessageBox.question(
-                        self,
-                        "发现用户偏好设置",
-                        f"检测到您之前为此数据集设置的训练轮数为 {preferred_epochs}。\n\n"
-                        f"是否要应用此设置？\n\n"
-                        f"当前设置: {self.epochs_spin.value()}\n"
-                        f"偏好设置: {preferred_epochs}",
-                        QMessageBox.Yes | QMessageBox.No,
-                        QMessageBox.Yes
-                    )
+            preferred_epochs = 50
+            if user_preference:
+                raw_preferred = user_preference.get('preferred_epochs')
+                try:
+                    if raw_preferred is not None:
+                        preferred_epochs = int(raw_preferred)
+                except (TypeError, ValueError):
+                    logger.warning(f"�û�ƫ�������ݸ�ʽ�쳣 raw_preferred={raw_preferred}, ʹ��Ĭ��ֵ {preferred_epochs}")
 
-                    if reply == QMessageBox.Yes:
-                        self.epochs_spin.setValue(preferred_epochs)
-                        self._safe_append_data_log(f"✅ 已应用用户偏好设置: {preferred_epochs} 轮")
-                    else:
-                        self._safe_append_data_log("⚠️ 用户选择不应用偏好设置")
+            if hasattr(self, 'epochs_spin'):
+                if self.epochs_spin.value() != preferred_epochs:
+                    self.epochs_spin.setValue(preferred_epochs)
+                    self._safe_append_data_log(f"? �Զ�Ӧ��ѵ������: {preferred_epochs} ��")
 
         except Exception as e:
-            logger.error(f"加载用户偏好设置失败: {str(e)}")
+            logger.error(f"�����û�ƫ������ʧ��: {str(e)}")
 
     def load_dataset_config(self, config_path):
         """加载数据集配置文件"""
@@ -6613,7 +8002,7 @@ class AIAssistantPanel(QWidget):
             # 训练轮数
             epochs_spin = QSpinBox()
             epochs_spin.setRange(10, 1000)
-            epochs_spin.setValue(100)
+            epochs_spin.setValue(50)
             params_layout.addRow("训练轮数:", epochs_spin)
 
             # 批次大小
@@ -8775,7 +10164,7 @@ pip install torch torchvision torchaudio
 
             # 如果有数据集配置文件，尝试解析获取图片列表
             if dataset_path and os.path.exists(dataset_path):
-                image_files = self._extract_images_from_dataset_config(
+                image_files = self._extract_images_from_dataset_config_v2(
                     dataset_path)
 
             # 如果无法从配置获取，尝试从最近的导出记录获取
@@ -8839,6 +10228,72 @@ pip install torch torchvision torchaudio
                             image_files.append(str(img_file))
 
             return image_files
+
+        except Exception as e:
+            logger.error(f"从数据集配置提取图片列表失败: {str(e)}")
+            return []
+
+    def _extract_images_from_dataset_config_v2(self, dataset_config_path: str) -> List[str]:
+        """
+        兼容 .txt 清单 / 目录 / 列表（三种形式）的提取器，避免 UI 线程阻塞。
+        """
+        try:
+            import yaml
+            from pathlib import Path
+            from typing import List
+
+            cfg_path = Path(dataset_config_path)
+            with open(cfg_path, 'r', encoding='utf-8') as f:
+                cfg = yaml.safe_load(f) or {}
+
+            base = cfg_path.parent
+
+            def _resolve(p: Path) -> Path:
+                return p if p.is_absolute() else (base / p)
+
+            def _read_list(txt: Path) -> List[str]:
+                out: List[str] = []
+                try:
+                    with open(txt, 'r', encoding='utf-8') as f:
+                        for line in f:
+                            s = line.strip().strip('"').strip("'")
+                            if not s:
+                                continue
+                            ip = Path(s)
+                            if not ip.is_absolute():
+                                ip = (txt.parent / ip).resolve()
+                            if ip.exists():
+                                out.append(str(ip))
+                except Exception:
+                    pass
+                return out
+
+            def _collect(entry) -> List[str]:
+                files: List[str] = []
+                if isinstance(entry, list):
+                    for sub in entry:
+                        files.extend(_collect(sub))
+                    return files
+                p = Path(entry)
+                p = _resolve(p)
+                if p.is_file() and p.suffix.lower() == '.txt':
+                    return _read_list(p)
+                if p.is_dir():
+                    try:
+                        for q in p.iterdir():
+                            if q.is_file() and q.suffix.lower() in {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif'}:
+                                files.append(str(q))
+                    except Exception:
+                        pass
+                return files
+
+            train_entry = cfg.get('train', 'images/train')
+            val_entry = cfg.get('val', 'images/val')
+
+            imgs: List[str] = []
+            imgs.extend(_collect(train_entry))
+            imgs.extend(_collect(val_entry))
+            return imgs
 
         except Exception as e:
             logger.error(f"从数据集配置提取图片列表失败: {str(e)}")
@@ -9724,3 +11179,10 @@ pip install torch torchvision torchaudio
     def get_model_manager(self) -> Optional[ModelManager]:
         """获取模型管理器实例"""
         return self.model_manager
+
+
+
+
+
+
+

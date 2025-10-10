@@ -10,6 +10,10 @@ names:
   8: fanPai
   9: zaiCiTiaoZhan
   10: chengHao
+  11: jinBi
+  12: queDing
+  13: xiuLi
+  14: chuShou
 path: D:\GitHub\python_labelImg-master\labelImg-master\datasets\training_dataset
 test: null
 train: images/train

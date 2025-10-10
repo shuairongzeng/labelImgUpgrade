@@ -276,6 +276,7 @@ class MultiThreadImageLoader(QThread):
             self.progress_updated.emit(0, 0, "正在扫描目录...")
 
             file_paths = []
+            scanned = 0
             for root, dirs, files in os.walk(self.folder_path):
                 if self.should_stop:
                     return
@@ -284,6 +285,14 @@ class MultiThreadImageLoader(QThread):
                     if file.lower().endswith(tuple(self.extensions)):
                         full_path = os.path.abspath(os.path.join(root, file))
                         file_paths.append(ustr(full_path))
+                        scanned += 1
+                        # 为了避免长时间持有GIL导致UI卡顿，大批量扫描时主动yield
+                        if scanned % 500 == 0:
+                            try:
+                                time.sleep(0.001)
+                                self.progress_updated.emit(0, 0, f"扫描中… 已发现 {scanned} 个候选文件")
+                            except Exception:
+                                pass
 
             if not file_paths:
                 self.loading_completed.emit([], 0)

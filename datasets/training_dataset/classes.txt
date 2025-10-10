@@ -9,3 +9,7 @@ door
 fanPai
 zaiCiTiaoZhan
 chengHao
+jinBi
+queDing
+xiuLi
+chuShou

@@ -37,7 +37,8 @@ class TrainingConfigManager:
             "model_type": "yolov8n",
             "device": "auto",
             "user_adjustments": {},  # 用户手动调整的记录
-            "smart_calc_history": []  # 智能计算历史
+            "smart_calc_history": [],
+            "multi_dir_training": {"enabled": False, "dirs": [], "val_ratio": 10, "deduplicate": True, "require_labels": True}
         }
     
     def ensure_config_dir(self):
@@ -207,10 +208,37 @@ class TrainingConfigManager:
                 }
             
             return None
-            
         except Exception as e:
-            logger.error(f"获取用户偏好设置失败: {str(e)}")
+            logger.error(f"获取用户偏好失败: {str(e)}")
             return None
+
+    def get_multi_dir_training(self) -> Dict[str, Any]:
+        """获取多目录合并训练偏好配置"""
+        cfg = self.load_config()
+        return cfg.get("multi_dir_training", {
+            "enabled": False,
+            "dirs": [],
+            "val_ratio": 10,
+            "deduplicate": True,
+            "require_labels": True
+        })
+
+    def save_multi_dir_training(self, enabled: bool, dirs: List[str], val_ratio: int, deduplicate: bool, require_labels: bool) -> bool:
+        """保存多目录合并训练偏好配置"""
+        try:
+            cfg = self.load_config()
+            cfg["multi_dir_training"] = {
+                "enabled": bool(enabled),
+                "dirs": list(dirs or []),
+                "val_ratio": int(val_ratio),
+                "deduplicate": bool(deduplicate),
+                "require_labels": bool(require_labels)
+            }
+            return self.save_config(cfg)
+        except Exception as e:
+            logger.error(f"保存多目录合并训练偏好失败: {str(e)}")
+            return False
+            
     
     def get_similar_dataset_recommendations(self, current_dataset_info: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
@@ -341,3 +369,6 @@ class TrainingConfigManager:
         except Exception as e:
             logger.error(f"导入配置失败: {str(e)}")
             return False
+
+
+
