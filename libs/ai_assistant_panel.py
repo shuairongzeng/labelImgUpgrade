@@ -23,6 +23,171 @@ except ImportError:
     from PyQt4.QtCore import *
     from PyQt4.QtGui import *
 
+
+class TrainingPreparationWorker(QObject):
+    """在后台线程中预处理训练配置，避免阻塞主界面。"""
+
+    progress = pyqtSignal(str)
+    finished = pyqtSignal(dict)
+    failed = pyqtSignal(list, list)
+
+    def __init__(self, yaml_path: str, model_info: dict, config_inputs: dict, parent: Optional[QObject] = None):
+        super().__init__(parent)
+        self.yaml_path = yaml_path or ""
+        self.model_info = model_info or {}
+        self.config_inputs = config_inputs or {}
+
+    @pyqtSlot()
+    def run(self):
+        logs: List[str] = []
+        errors: List[str] = []
+
+        def emit_log(message: str):
+            logs.append(message)
+            self.progress.emit(message)
+
+        try:
+            import yaml
+
+            emit_log("⏳ 正在校验训练配置，请稍候...")
+
+            yaml_path = self.yaml_path.strip()
+            if not yaml_path:
+                errors.append("未选择 data.yaml 配置文件")
+                emit_log("⚠️ data.yaml 配置文件路径为空")
+            elif not os.path.exists(yaml_path):
+                errors.append("data.yaml 配置文件不存在")
+                emit_log(f"⚠️ data.yaml 配置文件不存在: {yaml_path}")
+            else:
+                emit_log(f"📄 使用数据集配置: {yaml_path}")
+                emit_log("📥 读取配置文件内容...")
+
+                with open(yaml_path, "r", encoding="utf-8") as f:
+                    dataset_config = yaml.safe_load(f) or {}
+
+                emit_log(f"📑 配置原始内容: {dataset_config}")
+
+                names = dataset_config.get("names")
+                if not names:
+                    errors.append("配置文件缺少类别信息 (names)")
+                    emit_log("⚠️ 未发现有效的类别信息")
+                else:
+                    emit_log(f"✅ 已检测到 {len(names)} 个类别")
+
+                train_entry = dataset_config.get("train")
+                val_entry = dataset_config.get("val")
+                if not train_entry:
+                    errors.append("配置文件缺少训练集路径 (train)")
+                    emit_log("⚠️ 配置文件缺少训练集路径")
+                if not val_entry:
+                    errors.append("配置文件缺少验证集路径 (val)")
+                    emit_log("⚠️ 配置文件缺少验证集路径")
+
+                base_path = dataset_config.get("path")
+                yaml_dir = os.path.dirname(os.path.abspath(yaml_path))
+
+                if base_path:
+                    emit_log(f"📁 path 字段原值: {base_path}")
+                    if not os.path.isabs(base_path):
+                        if base_path == ".":
+                            base_path = yaml_dir
+                            emit_log("📁 path 使用配置文件所在目录")
+                        elif base_path.startswith("datasets/"):
+                            project_root = os.getcwd()
+                            base_path = os.path.abspath(os.path.join(project_root, base_path))
+                            emit_log(f"📁 path 解析到项目目录: {base_path}")
+                        else:
+                            base_path = os.path.abspath(os.path.join(yaml_dir, base_path))
+                            emit_log(f"📁 path 解析为: {base_path}")
+                    else:
+                        emit_log(f"📁 path 为绝对路径: {base_path}")
+                else:
+                    base_path = yaml_dir
+                    emit_log("📁 未提供 path，使用配置文件所在目录作为基准")
+
+                def resolve_dataset_path(entry):
+                    if not entry:
+                        return ""
+                    if os.path.isabs(entry):
+                        return entry
+                    return os.path.abspath(os.path.join(base_path, entry))
+
+                resolved_train = resolve_dataset_path(train_entry)
+                resolved_val = resolve_dataset_path(val_entry)
+
+                if train_entry:
+                    if os.path.exists(resolved_train):
+                        emit_log(f"✅ 训练集路径存在: {resolved_train}")
+                    else:
+                        errors.append(f"训练集路径不存在: {resolved_train}")
+                        emit_log(f"⚠️ 训练集路径不存在: {resolved_train}")
+                if val_entry:
+                    if os.path.exists(resolved_val):
+                        emit_log(f"✅ 验证集路径存在: {resolved_val}")
+                    else:
+                        errors.append(f"验证集路径不存在: {resolved_val}")
+                        emit_log(f"⚠️ 验证集路径不存在: {resolved_val}")
+
+            model_info = self.model_info
+            if not model_info:
+                errors.append("未选择有效的训练模型")
+                emit_log("⚠️ 未选择有效的训练模型")
+            else:
+                emit_log(f"🧠 使用模型: {model_info.get('name')}")
+
+            if errors:
+                emit_log("❌ 训练配置校验失败")
+                self.failed.emit(logs, errors)
+                return
+
+            epochs = int(self.config_inputs.get("epochs", 50))
+            batch_size = int(self.config_inputs.get("batch_size", 16))
+            learning_rate = float(self.config_inputs.get("learning_rate", 0.001))
+            device_text = str(self.config_inputs.get("device_text", "")).lower()
+
+            if "gpu" in device_text or "cuda" in device_text:
+                device = "cuda"
+            else:
+                device = "cpu"
+
+            training_payload = {
+                "dataset_config": yaml_path,
+                "epochs": epochs,
+                "batch_size": batch_size,
+                "learning_rate": learning_rate,
+                "model_type": model_info.get("type"),
+                "model_path": model_info.get("path"),
+                "model_name": model_info.get("name"),
+                "device": device,
+                "device_text": self.config_inputs.get("device_text", ""),
+                "resolved_train": resolved_train,
+                "resolved_val": resolved_val,
+            }
+
+            emit_log("✅ 训练配置校验通过，准备构建训练任务")
+
+            training_config = TrainingConfig(
+                dataset_config=training_payload["dataset_config"],
+                epochs=training_payload["epochs"],
+                batch_size=training_payload["batch_size"],
+                learning_rate=training_payload["learning_rate"],
+                model_type=training_payload["model_type"],
+                model_path=training_payload["model_path"],
+                model_name=training_payload["model_name"],
+                device=training_payload["device"],
+                output_dir=os.path.join(os.getcwd(), "runs", "train"),
+            )
+
+            training_payload["training_config"] = training_config
+
+            self.finished.emit(training_payload)
+
+        except Exception as e:
+            error_msg = f"训练准备过程中出现异常: {str(e)}"
+            emit_log(f"❌ {error_msg}")
+            errors.append(error_msg)
+            self.failed.emit(logs, errors)
+
 from .ai_assistant import YOLOPredictor, ModelManager, BatchProcessor, ConfidenceFilter
 from .ai_assistant.yolo_trainer import YOLOTrainer, TrainingConfig
 from .training_history_manager import TrainingHistoryManager
@@ -1180,6 +1345,9 @@ class AIAssistantPanel(QWidget):
         self.training_history_manager = None
         self.smart_epochs_calculator = SmartEpochsCalculator()
         self.training_config_manager = TrainingConfigManager()
+        self.training_prepare_thread = None
+        self.training_prepare_worker = None
+        self.training_prepare_dialog = None
         self.training_monitor_tab = None
         self.merged_table = None
         self.merged_summary_label = None
@@ -6090,20 +6258,17 @@ class AIAssistantPanel(QWidget):
             return False
 
     def start_complete_training(self, dialog):
-        """开始完整训练"""
+        """异步准备训练，避免阻塞界面。"""
         try:
-            # 先验证配置
-            if not self.validate_training_config(dialog):
+            self._safe_append_log("▶️ 已触发训练准备流程，正在初始化后台线程...")
+            logger.info("正在异步准备训练配置")
+            if self.training_prepare_thread and self.training_prepare_thread.isRunning():
+                self._safe_append_log("⚠️ 正在准备训练配置，请勿重复点击。")
                 return
-
-            from PyQt5.QtWidgets import QMessageBox
-
-            # 收集训练配置
-            self._safe_append_log("📋 收集训练配置参数...")
 
             config_path = getattr(self, 'dataset_config_edit', None)
             yaml_path = config_path.text().strip() if config_path else ""
-            # 若为空，尝试从项目训练偏好读取最近一次使用的数据集配置
+
             if not yaml_path:
                 try:
                     from libs.project_config_adapter import get_config_adapter
@@ -6116,100 +6281,185 @@ class AIAssistantPanel(QWidget):
                 except Exception:
                     pass
 
-            self._safe_append_log(f"📁 数据集配置路径: {yaml_path}")
-            self._safe_append_log(f"📂 当前工作目录: {os.getcwd()}")
+            self._safe_append_log(f"📄 本次训练使用数据集配置: {yaml_path or '未指定'}")
 
-            # 检查路径是否为绝对路径
-            if yaml_path:
-                if os.path.isabs(yaml_path):
-                    self._safe_append_log("✅ 使用绝对路径")
-                else:
-                    abs_path = os.path.abspath(yaml_path)
-                    self._safe_append_log(f"🔗 相对路径转换为绝对路径: {abs_path}")
-
-            # 获取选择的模型
             model_info = self.get_selected_training_model()
             if not model_info:
-                self._safe_append_log("❌ 未选择有效的训练模型")
-                QMessageBox.warning(self, "配置错误", "请选择有效的训练模型")
+                QMessageBox.warning(self, "配置错误", "请先选择有效的训练模型")
                 return
 
-            config = {
-                'dataset_config': yaml_path,
-                'epochs': self.epochs_spin.value(),
-                'batch_size': self.batch_spin.value(),
-                'learning_rate': self.lr_spin.value(),
-                'model_type': model_info['type'],
-                'model_path': model_info['path'],
-                'model_name': model_info['name'],
-                'device': self.device_combo.currentText()
+            config_inputs = {
+                "epochs": self.epochs_spin.value(),
+                "batch_size": self.batch_spin.value(),
+                "learning_rate": self.lr_spin.value(),
+                "device_text": self.device_combo.currentText(),
             }
 
-            self._safe_append_log("📊 训练配置参数:")
-            for key, value in config.items():
-                self._safe_append_log(f"   {key}: {value}")
+            if hasattr(self, 'train_btn'):
+                self.train_btn.setEnabled(False)
 
-            # 显示配置摘要
-            summary = f"""训练配置摘要:
+            progress_dialog = QProgressDialog("正在准备训练配置...", None, 0, 0, dialog)
+            progress_dialog.setWindowTitle("准备训练")
+            progress_dialog.setCancelButton(None)
+            progress_dialog.setWindowModality(Qt.WindowModal)
+            progress_dialog.setMinimumDuration(0)
+            progress_dialog.setAutoClose(False)
+            progress_dialog.setAutoReset(False)
+            progress_dialog.setRange(0, 0)
+            try:
+                progress_dialog.setWindowFlag(Qt.WindowCloseButtonHint, False)
+            except AttributeError:
+                progress_dialog.setWindowFlags(progress_dialog.windowFlags() & ~Qt.WindowCloseButtonHint)
+            progress_dialog.show()
+            progress_dialog.raise_()
+            progress_dialog.activateWindow()
 
-📁 数据配置:
-   配置文件: {config['dataset_config']}
+            thread = QThread(self)
+            worker = TrainingPreparationWorker(yaml_path, model_info, config_inputs)
+            worker.moveToThread(thread)
 
-🤖 模型配置:
-   模型类型: {config['model_type']}
-   模型名称: {config['model_name']}
-   模型路径: {config['model_path']}
+            worker.progress.connect(self._on_training_preparation_progress)
+            worker.finished.connect(lambda payload: self._on_training_preparation_finished(dialog, payload))
+            worker.failed.connect(lambda logs, errors: self._on_training_preparation_failed(dialog, logs, errors))
+
+            worker.finished.connect(thread.quit)
+            worker.failed.connect(thread.quit)
+            thread.finished.connect(worker.deleteLater)
+            thread.finished.connect(thread.deleteLater)
+
+            self.training_prepare_thread = thread
+            self.training_prepare_worker = worker
+            self.training_prepare_dialog = progress_dialog
+
+            thread.started.connect(worker.run)
+            thread.start()
+
+        except Exception as e:
+            if hasattr(self, 'train_btn'):
+                self.train_btn.setEnabled(True)
+            try:
+                dialog.setEnabled(True)
+            except RuntimeError:
+                pass
+            self._close_training_prepare_dialog()
+            logger.error(f"开始完整训练失败: {str(e)}")
+            QMessageBox.critical(self, "训练启动失败", str(e))
+
+    def _close_training_prepare_dialog(self):
+        """关闭训练准备阶段的进度提示框。"""
+        if self.training_prepare_dialog is not None:
+            try:
+                self.training_prepare_dialog.close()
+                self.training_prepare_dialog.deleteLater()
+            except RuntimeError:
+                pass
+            self.training_prepare_dialog = None
+
+    def _on_training_preparation_progress(self, message: str):
+        """在主线程中更新训练准备进度信息。"""
+        try:
+            self._safe_append_data_log(message)
+        except Exception:
+            logger.info(message)
+        if self.training_prepare_dialog is not None:
+            try:
+                self.training_prepare_dialog.setLabelText(f"正在准备训练配置...\n{message}")
+            except RuntimeError:
+                pass
+
+    def _restore_training_prepare_ui(self, dialog):
+        """恢复准备过程中的 UI 状态。"""
+        if hasattr(self, 'train_btn'):
+            try:
+                self.train_btn.setEnabled(True)
+            except RuntimeError:
+                pass
+        try:
+            dialog.setEnabled(True)
+        except RuntimeError:
+            pass
+
+    def _on_training_preparation_finished(self, dialog, payload: dict):
+        """训练准备完成后的处理逻辑。"""
+        self._close_training_prepare_dialog()
+        self.training_prepare_worker = None
+        self.training_prepare_thread = None
+        self._restore_training_prepare_ui(dialog)
+
+        training_config = payload.get('training_config')
+        if training_config is None:
+            logger.error("训练准备结果缺少 training_config")
+            QMessageBox.warning(self, "训练配置缺失", "未能构建有效的训练配置。")
+            return
+
+        dataset_config = payload.get('dataset_config', '')
+        model_type = payload.get('model_type', '')
+        model_name = payload.get('model_name', '')
+        model_path = payload.get('model_path', '')
+        epochs = payload.get('epochs', 0)
+        batch_size = payload.get('batch_size', 0)
+        learning_rate = payload.get('learning_rate', 0.0)
+        device_label = payload.get('device_text', '') or payload.get('device', '')
+
+        self._safe_append_log("✅ 训练配置校验通过，生成摘要：")
+        self._safe_append_log(f"   dataset_config: {dataset_config}")
+        self._safe_append_log(f"   model_type: {model_type}")
+        self._safe_append_log(f"   model_name: {model_name}")
+        self._safe_append_log(f"   model_path: {model_path}")
+        self._safe_append_log(f"   epochs: {epochs}")
+        self._safe_append_log(f"   batch_size: {batch_size}")
+        self._safe_append_log(f"   learning_rate: {learning_rate}")
+        self._safe_append_log(f"   device: {device_label}")
+
+        summary = f"""训练参数摘要:
+
+📁 数据集配置:
+   路径: {dataset_config}
+
+🧠 模型信息:
+   类型: {model_type}
+   名称: {model_name}
+   路径: {model_path}
 
 ⚙️ 训练参数:
-   训练轮数: {config['epochs']}
-   批次大小: {config['batch_size']}
-   学习率: {config['learning_rate']}
-   训练设备: {config['device']}
+   轮数: {epochs}
+   批次: {batch_size}
+   学习率: {learning_rate}
+   设备: {device_label}
 
 确认开始训练吗？"""
 
-            reply = QMessageBox.question(dialog, "确认训练配置", summary,
-                                         QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        reply = QMessageBox.question(dialog, "确认训练配置", summary, QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        if reply != QMessageBox.Yes:
+            self._safe_append_log("ℹ️ 用户取消了训练启动。")
+            return
 
-            if reply == QMessageBox.Yes:
-                # 不关闭配置对话框，而是切换到训练监控标签页
-                self._switch_to_training_monitor()
-
-                # 标准化设备字符串
-                device_str = str(config['device']).lower()
-                if "gpu" in device_str or "cuda" in device_str:
-                    device = 'cuda'
-                else:
-                    device = 'cpu'
-
-                # 创建训练配置
-                training_config = TrainingConfig(
-                    dataset_config=config['dataset_config'],
-                    epochs=config['epochs'],
-                    batch_size=config['batch_size'],
-                    learning_rate=config['learning_rate'],
-                    model_type=config['model_type'],
-                    model_path=config['model_path'],
-                    model_name=config['model_name'],
-                    device=device,
-                    output_dir=os.path.join(os.getcwd(), 'runs', 'train')
-                )
-
-                # 保存对话框引用，以便训练完成后关闭
-                self.training_dialog = dialog
-
-                # 启动真实训练
-                self.trainer.start_training(training_config)
-
-                # 训练发起后，记录当前数据集配置到项目偏好，便于下次默认加载
-                try:
-                    from libs.project_config_adapter import get_config_adapter
-                    get_config_adapter().save_training_preferences({'dataset_yaml': yaml_path})
-                except Exception:
-                    pass
-
+        self._switch_to_training_monitor()
+        self.training_dialog = dialog
+        try:
+            self.trainer.start_training(training_config)
         except Exception as e:
-            logger.error(f"开始完整训练失败: {str(e)}")
+            logger.error(f"启动训练失败: {str(e)}")
+            QMessageBox.critical(self, "训练启动失败", str(e))
+            return
+
+        if dataset_config:
+            try:
+                from libs.project_config_adapter import get_config_adapter
+                get_config_adapter().save_training_preferences({'dataset_yaml': dataset_config})
+            except Exception as e:
+                logger.warning(f"保存训练偏好失败: {str(e)}")
+
+    def _on_training_preparation_failed(self, dialog, logs: List[str], errors: List[str]):
+        """训练准备失败后的兜底处理。"""
+        self._close_training_prepare_dialog()
+        self.training_prepare_worker = None
+        self.training_prepare_thread = None
+        self._restore_training_prepare_ui(dialog)
+
+        for error in errors or []:
+            self._safe_append_log(f"⚠️ {error}")
+        QMessageBox.warning(self, "训练配置校验失败", "\n".join(errors or ["未知错误"]))
 
     def _switch_to_training_monitor(self):
         """切换到训练监控标签页"""

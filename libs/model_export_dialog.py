@@ -1143,73 +1143,94 @@ class ModelExportDialog(QDialog):
         except Exception as e:
             print(f"刷新模型失败: {e}")
 
+    def _normalize_model_entries(self, models):
+        """将模型条目统一转换为(路径, 信息字典)格式。"""
+        normalized = []
+        try:
+            for entry in models or []:
+                if isinstance(entry, dict):
+                    path = entry.get('path') or entry.get('model_path') or entry.get('file_path') or entry.get('file')
+                    if not path:
+                        logger.warning(f"模型条目缺少路径字段: {entry}")
+                        continue
+                    normalized.append((path, entry))
+                elif isinstance(entry, str):
+                    normalized.append((entry, {'path': entry}))
+                else:
+                    logger.warning(f"未知的模型条目类型: {type(entry)}")
+            return normalized
+        except Exception as e:
+            logger.error(f"规范化模型条目失败: {str(e)}")
+            return []
+
     def update_model_list(self, models):
-        """更新模型下拉列表（智能推荐版）"""
+        """更新模型选择列表和推荐逻辑"""
         try:
             self.model_combo.clear()
 
-            if not models:
+            normalized_models = self._normalize_model_entries(models)
+
+            if not normalized_models:
                 self.model_combo.addItem(self.get_str('noModelsAvailable'))
                 self.model_combo.setEnabled(False)
                 return
 
             self.model_combo.setEnabled(True)
 
-            # 分类模型
             official_models = ['yolov8n.pt', 'yolov8s.pt', 'yolov8m.pt', 'yolov8l.pt', 'yolov8x.pt',
                               'yolo11n.pt', 'yolo11s.pt', 'yolo11m.pt', 'yolo11l.pt', 'yolo11x.pt']
             training_models = []
             custom_models = []
 
-            # 找到推荐模型
-            recommended_model = self._find_recommended_model(models)
+            recommended_model = self._find_recommended_model([path for path, _ in normalized_models])
 
-            for model_path in models:
+            for model_path, _ in normalized_models:
                 model_name = os.path.basename(model_path)
+                normalized_path = model_path.replace('\\', '/')
                 if model_name in official_models:
-                    # 官方模型
-                    display_name = f"📦 {model_name}"
+                    display_name = f"[官方] {model_name}"
                     self.model_combo.addItem(display_name, model_path)
-                elif 'runs/train' in model_path.replace('\\', '/'):
+                elif 'runs/train' in normalized_path:
                     training_models.append(model_path)
                 else:
                     custom_models.append(model_path)
 
-            # 添加训练结果模型（按推荐程度排序）
-            training_models.sort(key=lambda x: x != recommended_model)  # 推荐模型排在前面
+            training_models.sort(key=lambda x: x != recommended_model)
 
             for model_path in training_models:
                 display_name = self._format_training_model_name(model_path)
-
-                # 为推荐模型添加标记
                 if model_path == recommended_model:
-                    display_name += " 🌟推荐"
-
+                    display_name += " [推荐]"
                 self.model_combo.addItem(display_name, model_path)
 
-            # 添加自定义模型
             for model_path in custom_models:
-                model_name = f"📄 {os.path.basename(model_path)}"
+                model_name = f"[自定义] {os.path.basename(model_path)}"
                 self.model_combo.addItem(model_name, model_path)
 
-            # 智能默认选择（优先选择推荐模型）
             self._select_recommended_model(recommended_model)
 
         except Exception as e:
-            print(f"更新模型列表失败: {e}")
+            logger.error(f"更新模型列表失败: {str(e)}")
 
     def _find_recommended_model(self, models):
-        """找到推荐的模型（基于训练时间和性能）"""
+        """寻找推荐的训练模型"""
         try:
-            training_models = [m for m in models if 'runs/train' in m.replace('\\', '/') and 'best.pt' in m]
+            training_models = []
+            for entry in models or []:
+                if isinstance(entry, dict):
+                    path = entry.get('path') or entry.get('model_path') or entry.get('file_path') or entry.get('file')
+                else:
+                    path = entry
+                if not path or not isinstance(path, str):
+                    continue
+                normalized_path = path.replace('\\', '/')
+                if 'runs/train' in normalized_path and 'best.pt' in normalized_path:
+                    training_models.append(path)
 
             if not training_models:
                 return None
 
-            # 按修改时间排序，最新的在前面
-            training_models.sort(key=lambda x: os.path.getmtime(x), reverse=True)
-
-            # 返回最新的best.pt模型作为推荐
+            training_models.sort(key=lambda x: os.path.getmtime(x) if os.path.exists(x) else 0, reverse=True)
             return training_models[0] if training_models else None
 
         except Exception as e:
